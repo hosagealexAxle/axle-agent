@@ -64,7 +64,7 @@ export default function App() {
       const j = await r.json();
       if (j.ok) setMessages(j.messages || []);
     } catch (e) {
-      setMessages([{ role: "assistant", content: `⚠️ Error: ${e?.message || "Failed to load thread"}`, ts: nowTs() }]);
+      setMessages([{ role: "assistant", content: `Error: ${e?.message || "Failed to load thread"}`, ts: nowTs() }]);
     }
   }
 
@@ -73,7 +73,7 @@ export default function App() {
       const r = await fetch(`${API_BASE}/api/threads`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New chat" }),
+        body: JSON.stringify({ title: "New Chat" }),
       });
       const j = await r.json();
       if (j.ok && j.thread?.id) {
@@ -84,11 +84,12 @@ export default function App() {
   }
 
   async function renameThread(id, title) {
+    if (!title.trim()) { setEditingThreadId(null); return; }
     try {
       await fetch(`${API_BASE}/api/threads/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title: title.trim() }),
       });
       await loadThreads();
     } catch { /* ignore */ }
@@ -150,13 +151,12 @@ export default function App() {
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "chat failed");
       setMode(j.mode || "chat");
-      setLastActions(j.actions || []);
       setMessages((m) => [...m, { role: "assistant", content: j.reply || "", ts: nowTs() }]);
       loadThreads();
       loadBudget();
       loadActions();
     } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", content: `⚠️ Error: ${e?.message || "Failed to fetch"}`, ts: nowTs() }]);
+      setMessages((m) => [...m, { role: "assistant", content: `Error: ${e?.message || "Failed to fetch"}`, ts: nowTs() }]);
     } finally {
       setBusy(false);
     }
@@ -164,21 +164,20 @@ export default function App() {
 
   const activeThreadTitle = useMemo(() => {
     const t = threads.find((x) => x.id === activeThreadId);
-    return t?.title || "Axle (Local)";
+    return t?.title || "Axle";
   }, [threads, activeThreadId]);
 
-  // Budget bar helper
   function BudgetBar({ label, spent, cap, color }) {
     const pct = cap > 0 ? Math.min((spent / cap) * 100, 100) : 0;
     const warn = pct > 80;
     return (
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3, color: "var(--muted)" }}>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4, color: "var(--muted)" }}>
           <span>{label}</span>
-          <span style={{ color: warn ? "#ff6b6b" : "var(--muted)" }}>${spent} / ${cap}</span>
+          <span style={{ color: warn ? "#ff6b6b" : "var(--text)", fontWeight: 500 }}>${spent} / ${cap}</span>
         </div>
-        <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-          <div style={{ height: "100%", width: pct + "%", borderRadius: 4, background: warn ? "#ff6b6b" : color || "rgba(90,120,255,0.7)", transition: "width 0.3s" }} />
+        <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+          <div style={{ height: "100%", width: pct + "%", borderRadius: 3, background: warn ? "#ff6b6b" : color || "rgba(90,120,255,0.7)", transition: "width 0.3s" }} />
         </div>
       </div>
     );
@@ -186,12 +185,13 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Sidebar */}
       <div className="sidebar">
         <div className="brand">
           <div className="brandName">Axle</div>
-          <div className="brandSub">Local operator console • Etsy API pending</div>
+          <div className="brandSub">Etsy operator console</div>
         </div>
-        <button className="btn primary" onClick={createThread}>+ New chat</button>
+        <button className="btn primary" onClick={createThread}>New Chat</button>
         <div className="threadList">
           {threads.map((t) => (
             <div
@@ -225,7 +225,7 @@ export default function App() {
                       <button
                         className="threadBtn"
                         title="Delete"
-                        onClick={(e) => { e.stopPropagation(); if (confirm("Delete this thread?")) deleteThread(t.id); }}
+                        onClick={(e) => { e.stopPropagation(); if (confirm("Delete this thread and all its messages?")) deleteThread(t.id); }}
                       >🗑️</button>
                     )}
                   </div>
@@ -235,42 +235,38 @@ export default function App() {
           ))}
         </div>
         <div className="footerStatus">
-          <div>Backend: {backendOk ? "✅ Online" : "❌ Offline"}</div>
-          <div>API: {API_BASE}</div>
+          <div className="statusDot">
+            <span className={backendOk ? "dot green" : "dot red"} />
+            {backendOk ? "Connected" : "Offline"}
+          </div>
         </div>
       </div>
 
+      {/* Main Chat */}
       <div className="main">
         <div className="topbar">
           <div className="title">{activeThreadTitle}</div>
-          <div className="mode">Mode: {mode}</div>
+          <div className="topbarRight">
+            <span className="modeLabel">{mode}</span>
+          </div>
         </div>
         <div className="chat" ref={chatRef}>
           {messages.length === 0 ? (
-            <div className="bubble assistant">
-              <div className="text">
-                Hey — I'm Axle. Etsy API is pending, so I'm running in planning + safety mode.
-                <br /><br />
-                Try:
-                <ul>
-                  <li>"Plan my SEO today"</li>
-                  <li>"/budget"</li>
-                  <li>"toggle ads"</li>
-                </ul>
-              </div>
-              <div className="meta">assistant • {fmtTime(nowTs())}</div>
+            <div className="emptyState">
+              <div className="emptyTitle">Welcome to Axle</div>
+              <div className="emptyDesc">Your Etsy shop operator. Try asking me to plan your SEO, check your budget, or toggle ads.</div>
             </div>
           ) : (
             messages.map((m, idx) => (
               <div key={idx} className={"bubble " + (m.role === "user" ? "user" : "assistant")}>
                 <div className="text">{m.content}</div>
-                <div className="meta">{m.role} • {fmtTime(m.ts || nowTs())}</div>
+                <div className="meta">{m.role === "user" ? "You" : "Axle"} · {fmtTime(m.ts || nowTs())}</div>
               </div>
             ))
           )}
           {busy && (
             <div className="bubble assistant">
-              <div className="text thinking">…thinking</div>
+              <div className="text thinking">Thinking…</div>
             </div>
           )}
         </div>
@@ -278,24 +274,21 @@ export default function App() {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Message Axle… (Shift+Enter for new line)"
+            placeholder="Message Axle…"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
             }}
           />
-          <button className="btn primary" onClick={send} disabled={!backendOk || busy}>Send</button>
+          <button className="btn primary sendBtn" onClick={send} disabled={!backendOk || busy}>Send</button>
         </div>
       </div>
 
+      {/* Right Panel */}
       <div className="right">
         <div className="panel">
-          <div className="panelTitle">System</div>
-          <div className="kv"><div>Backend</div><div className={backendOk ? "ok" : "bad"}>{backendOk ? "Online" : "Offline"}</div></div>
-          <div className="kv"><div>Thread</div><div>{activeThreadId}</div></div>
-          <div className="kv"><div>Mode</div><div>{mode}</div></div>
+          <div className="panelTitle">Overview</div>
 
-          {/* Budget Spend Tracker */}
-          <div className="sectionTitle" style={{ marginTop: 12 }}>Budget — Month to Date</div>
+          <div className="sectionTitle">Budget · Month to Date</div>
           {budget ? (
             <>
               <BudgetBar label="Total" spent={budget.monthToDate?.total || 0} cap={budget.caps?.total || 300} color="rgba(90,120,255,0.7)" />
@@ -304,41 +297,53 @@ export default function App() {
               <BudgetBar label="Ads" spent={budget.monthToDate?.byCat?.ads || 0} cap={budget.caps?.ads || 150} color="rgba(200,100,255,0.7)" />
             </>
           ) : (
-            <div className="mini">Loading budget…</div>
+            <div className="mini">Loading…</div>
           )}
 
-          {/* Shop Stats */}
           {shopStats && (
             <>
-              <div className="sectionTitle" style={{ marginTop: 12 }}>Shop Stats</div>
-              <div className="kv"><div>Visits</div><div>{shopStats.visits ?? "—"}</div></div>
-              <div className="kv"><div>Orders</div><div>{shopStats.orders ?? "—"}</div></div>
-              <div className="kv"><div>Revenue</div><div>${shopStats.revenueUsd ?? "—"}</div></div>
-              <div className="kv"><div>CVR</div><div>{shopStats.conversionRate ?? "—"}%</div></div>
+              <div className="sectionTitle">Shop Stats</div>
+              <div className="statsGrid">
+                <div className="statCard">
+                  <div className="statValue">{shopStats.visits ?? "—"}</div>
+                  <div className="statLabel">Visits</div>
+                </div>
+                <div className="statCard">
+                  <div className="statValue">{shopStats.orders ?? "—"}</div>
+                  <div className="statLabel">Orders</div>
+                </div>
+                <div className="statCard">
+                  <div className="statValue">${shopStats.revenueUsd ?? "—"}</div>
+                  <div className="statLabel">Revenue</div>
+                </div>
+                <div className="statCard">
+                  <div className="statValue">{shopStats.conversionRate ?? "—"}%</div>
+                  <div className="statLabel">CVR</div>
+                </div>
+              </div>
             </>
           )}
 
-          {/* Recent Actions */}
-          <div className="sectionTitle" style={{ marginTop: 12 }}>Recent Actions</div>
+          <div className="sectionTitle">Recent Activity</div>
           {lastActions.length > 0 ? (
             <div className="actionList">
               {lastActions.map((a, i) => (
                 <div key={i} className={"actionItem " + (a.ok ? "ok" : "fail")}>
-                  <span className="actionType">[{a.type}]</span> {a.label}
+                  <span className="actionType">{a.type}</span>
+                  <span className="actionLabel">{a.label}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mini">No recent actions</div>
+            <div className="mini">No recent activity</div>
           )}
 
-          {/* Quick Commands */}
-          <div className="sectionTitle" style={{ marginTop: 12 }}>Quick commands</div>
+          <div className="sectionTitle">Quick Commands</div>
           <div className="quick">
-            <button className="btn" onClick={() => setInput("/budget")}>/budget</button>
-            <button className="btn" onClick={() => setInput("toggle ads")}>toggle ads</button>
-            <button className="btn" onClick={() => setInput("kill switch on")}>kill switch on</button>
-            <button className="btn" onClick={() => setInput("Plan my SEO today")}>Plan my SEO</button>
+            <button className="btn quickBtn" onClick={() => { setInput("Show my budget"); }}>Budget</button>
+            <button className="btn quickBtn" onClick={() => { setInput("Toggle ads"); }}>Toggle Ads</button>
+            <button className="btn quickBtn" onClick={() => { setInput("Kill switch on"); }}>Kill Switch</button>
+            <button className="btn quickBtn" onClick={() => { setInput("Plan my SEO today"); }}>Plan SEO</button>
           </div>
         </div>
       </div>
