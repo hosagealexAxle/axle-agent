@@ -1,0 +1,303 @@
+// backend/src/server.js
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import { z } from "zod";
+import { PrismaClient } from "@prisma/client";
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
+
+const prisma = new PrismaClient();
+
+const PORT = Number(process.env.PORT || 4000);
+
+// ======= Config / caps =======
+const CAP_TOTAL_USD = Number(process.env.CAP_TOTAL_USD || 300);
+const CAP_API_USD = Number(process.env.CAP_API_USD || 200);
+const CAP_SEO_USD = Number(process.env.CAP_SEO_USD || 100);
+const CAP_ADS_USD = Number(process.env.CAP_ADS_USD || 150);
+
+const DAILY_CAP_API_USD = Number(process.env.DAILY_CAP_API_USD || 50);
+const DAILY_CAP_SEO_USD = Number(process.env.DAILY_CAP_SEO_USD || 50);
+const DAILY_CAP_ADS_USD = Number(process.env.DAILY_CAP_ADS_USD || 50);
+
+const POLICY_MODE = String(process.env.POLICY_MODE || "aggressive");
+const OVERRUN_MAX_USD = Number(process.env.OVERRUN_MAX_USD || 50);
+const ROI_MIN = Number(process.env.ROI_MIN || 2.0);
+
+const RISK_MODE = String(process.env.RISK_MODE || "cashflow");
+const CONFIDENCE_MIN = Number(process.env.CONFIDENCE_MIN || 0.85);
+
+const APPROVAL_THRESHOLD_USD = Number(process.env.APPROVAL_THRESHOLD_USD || 25);
+
+const KILL_SWITCH_DEFAULT =
+  String(process.env.KILL_SWITCH || "false").toLowerCase() === "true";
+
+// ======= OpenAI =======
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+// Use a model you have access to:
+const OPENAI_MODEL = String(process.env.OPENAI_MODEL || "gpt-4.1-mini");
+// If you ever use a proxy later:
+const OPENAI_BASE_URL = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1");
+
+const SYSTEM_PROMPT =
+  "You are Axle, an Etsy shop operator assistant. Etsy API is pending. " +
+  "Focus on planning, UI guidance, and safety/budget control. " +
+  "If asked for actions requiring Etsy API, propose a safe manual plan.";
+
+// ======= Helpers =======
+function safeJson(res, status, body) {
+  return res.status(status).json(body);
+}
+
+async function getOrCreateSystemState() {
+  const existing = await prisma.systemState.findUnique({ where: { id: "default" } });
+  if (existing) return existing;
+  return prisma.systemState.create({
+    data: {
+      id: "default",
+      killSwitchOn: KILL_SWITCH_DEFAULT,
+      policyMode: POLICY_MODE,
+      totalsJson: JSON.stringify({
+        month: { total: 0, byCat: { api: 0, seo: 0, ads: 0 } },
+        today: { byCat: { api: 0, seo: 0, ads: 0 } },
+      }),
+    },
+  });
+}
+
+function parseTotals(totalsJson) {
+  try {
+    return JSON.parse(totalsJson || "{}");
+  } catch {
+    return {
+      month: { total: 0, byCat: { api: 0, seo: 0, ads: 0 } },
+      today: { byCat: { api: 0, seo: 0, ads: 0 } },
+    };
+  }
+}
+
+async function ensureThread(threadId) {
+  const tid = String(threadId || "default");
+  const t = await prisma.thread.upsert({
+    where: { id: tid },
+    update: { updatedAt: new Date() },
+    create: { id: tid, title: tid === "default" ? "Axle (Local)" : tid },
+  });
+  return t;
+}
+
+async function addMessage(threadId, role, content) {
+  await ensureThread(threadId);
+  return prisma.message.create({
+    data: {
+      threadId: String(threadId),
+      role,
+      content: String(content || ""),
+    },
+  });
+}
+
+// ======= Health =======
+app.get("/api/health", async (req, res) => {
+  try {
+    const state = await getOrCreateSystemState();
+    return res.json({ ok: true, ts: new Date().toISOString(), killSwitchOn: state.killSwitchOn });
+  } catch (e) {
+    console.error("health error", e);
+    return safeJson(res, 500, { ok: false, error: "health failed" });
+  }
+});
+
+// ======= Policy (caps/status) =======
+app.get("/api/policy", async (req, res) => {
+  try {
+    const state = await getOrCreateSystemState();
+    const totals = parseTotals(state.totalsJson);
+
+    return res.json({
+      ok: true,
+      caps: {
+        total: CAP_TOTAL_USD,
+        api: CAP_API_USD,
+        seo: CAP_SEO_USD,
+        ads: CAP_ADS_USD,
+      },
+      dailyCaps: {
+        api: DAILY_CAP_API_USD,
+        seo: DAILY_CAP_SEO_USD,
+        ads: DAILY_CAP_ADS_USD,
+      },
+      policy: {
+        mode: state.policyMode || POLICY_MODE,
+        overrunMaxUsd: OVERRUN_MAX_USD,
+        roiMin: ROI_MIN,
+        riskMode: RISK_MODE,
+        confidenceMin: CONFIDENCE_MIN,
+        approvalThresholdUsd: APPROVAL_THRESHOLD_USD,
+      },
+      spend: totals,
+      killSwitchOn: !!state.killSwitchOn,
+    });
+  } catch (e) {
+    console.error("/api/policy error", e);
+    return safeJson(res, 500, { ok: false, error: "policy failed" });
+  }
+});
+
+// ======= Kill switch =======
+app.post("/api/killswitch", async (req, res) => {
+  try {
+    const body = z
+      .object({
+        on: z.boolean(),
+      })
+      .parse(req.body);
+
+    const updated = await prisma.systemState.upsert({
+      where: { id: "default" },
+      update: { killSwitchOn: body.on },
+      create: {
+        id: "default",
+        killSwitchOn: body.on,
+        policyMode: POLICY_MODE,
+        totalsJson: JSON.stringify({
+          month: { total: 0, byCat: { api: 0, seo: 0, ads: 0 } },
+          today: { byCat: { api: 0, seo: 0, ads: 0 } },
+        }),
+      },
+    });
+
+    return res.json({ ok: true, killSwitchOn: updated.killSwitchOn });
+  } catch (e) {
+    console.error("/api/killswitch error", e);
+    return safeJson(res, 400, { ok: false, error: "invalid request" });
+  }
+});
+
+// ======= Actions log =======
+app.get("/api/actions", async (req, res) => {
+  try {
+    const shopId = String(req.query.shopId || "");
+    if (!shopId) return safeJson(res, 400, { ok: false, error: "shopId required" });
+
+    const rows = await prisma.actionLog.findMany({
+      where: { shopId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+
+    return res.json({ ok: true, rows });
+  } catch (e) {
+    console.error("/api/actions error", e);
+    return safeJson(res, 500, { ok: false, error: "DB error" });
+  }
+});
+
+// ======= Thread fetch (persistent memory) =======
+app.get("/api/chat/thread", async (req, res) => {
+  try {
+    const threadId = String(req.query.threadId || "default");
+
+    // If thread doesn't exist yet, return empty
+    const t = await prisma.thread.findUnique({ where: { id: threadId } });
+    if (!t) return res.json({ ok: true, threadId, messages: [] });
+
+    const msgs = await prisma.message.findMany({
+      where: { threadId },
+      orderBy: { createdAt: "asc" },
+      take: 500,
+    });
+
+    return res.json({
+      ok: true,
+      threadId,
+      messages: msgs.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ts: m.createdAt.getTime(),
+      })),
+    });
+  } catch (e) {
+    console.error("/api/chat/thread error", e);
+    return safeJson(res, 500, { ok: false, error: "thread fetch failed" });
+  }
+});
+
+// ======= Chat endpoint (now persists both sides) =======
+app.post("/api/chat", async (req, res) => {
+  try {
+    const body = z
+      .object({
+        threadId: z.string().min(1),
+        message: z.string().min(1),
+      })
+      .parse(req.body);
+
+    const state = await getOrCreateSystemState();
+    if (state.killSwitchOn) {
+      await addMessage(body.threadId, "user", body.message);
+      const reply = "Kill switch is ON. I can’t take actions. You can turn it off in the right panel.";
+      await addMessage(body.threadId, "assistant", reply);
+      return res.json({ ok: true, mode: "chat", reply, actions: [] });
+    }
+
+    // Always persist user message
+    await addMessage(body.threadId, "user", body.message);
+
+    // No key => safe mode response
+    if (!OPENAI_API_KEY) {
+      const reply =
+        `Axle (planning mode): You said "${body.message}". ` +
+        `Etsy API is pending so I’m operating in safe mode.`;
+      await addMessage(body.threadId, "assistant", reply);
+      return res.json({ ok: true, mode: "chat", reply, actions: [] });
+    }
+
+    // Key present => call OpenAI Responses API
+    const r = await fetch(`${OPENAI_BASE_URL}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        input: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: body.message },
+        ],
+        max_output_tokens: 300,
+      }),
+    });
+
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      console.error("OpenAI request failed:", text.slice(0, 400));
+      const reply = "OpenAI request failed. Check your OPENAI_API_KEY / model.";
+      await addMessage(body.threadId, "assistant", reply);
+      return safeJson(res, 500, { ok: false, error: "OpenAI request failed", details: text.slice(0, 400) });
+    }
+
+    const data = await r.json();
+    const reply =
+      (data && data.output_text && String(data.output_text).trim()) ||
+      "I did not get a text response back.";
+
+    await addMessage(body.threadId, "assistant", reply);
+
+    return res.json({ ok: true, mode: "chat", reply, actions: [] });
+  } catch (e) {
+    console.error("/api/chat error:", e);
+    return safeJson(res, 400, { ok: false, error: "Invalid request" });
+  }
+});
+
+// ======= Start =======
+app.listen(PORT, () => {
+  console.log(`Axle backend running: http://localhost:${PORT}`);
+});

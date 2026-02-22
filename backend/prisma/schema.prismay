@@ -1,0 +1,104 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Thread {
+  id        String    @id @default(cuid())
+  title     String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  threadId  String
+  role      String   // "user" | "assistant" | "system"
+  content   String
+  createdAt DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+}
+
+model ShopSnapshot {
+  id              String   @id @default(cuid())
+  shopId           String
+  period          String
+  visits          Int?
+  orders          Int?
+  revenueUsd      Float?
+  conversionRate  Float?
+  trafficEtsyApp  Int?
+  trafficDirect   Int?
+  trafficSeo      Int?
+  trafficSearch   Int?
+  trafficSocial   Int?
+  adsStatus       String?
+  capturedAt      DateTime @default(now())
+}
+
+model ListingMetric {
+  id              String   @id @default(cuid())
+  shopId          String
+  listingId       String
+  title           String?
+  priceUsd        Float?
+  visits          Int?
+  orders          Int?
+  revenueUsd      Float?
+  conversionRate  Float?
+  capturedAt      DateTime @default(now())
+}
+
+model ActionLog {
+  id            String   @id @default(cuid())
+  shopId         String
+  actionType     String
+  targetId       String?
+  beforeJson     Json?
+  afterJson      Json?
+  confidence     Float?
+  status         String   @default("planned")
+  blockedReason  String?
+  createdAt      DateTime @default(now())
+}
+
+model BudgetLedger {
+  id         String   @id @default(cuid())
+  category   String
+  amountUsd  Float
+  description String?
+  metaJson   Json?
+  createdAt  DateTime @default(now())
+}
+
+model SystemState {
+  id        String   @id @default("global")
+  metaJson  Json?
+  updatedAt DateTime @updatedAt
+}
+model Thread {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  title     String?
+  messages  Message[]
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  threadId  String
+  role      String
+  content   String
+  ts        DateTime @default(now())
+
+  thread    Thread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, ts])
+}

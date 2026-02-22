@@ -1,0 +1,37 @@
+{
+  "name": "axle-desktop",
+  "productName": "Axle",
+  "version": "0.1.0",
+  "description": "Axle desktop app",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.axle.desktop",
+    "productName": "Axle",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*"
+    ],
+    "extraResources": [
+      { "from": "../dashboard/dist", "to": "dashboard/dist" },
+      { "from": "../backend", "to": "backend" }
+    ],
+    "mac": {
+      "target": ["dmg"],
+      "icon": "assets/icon.icns"
+    }
+  }
+}
+
+
+

@@ -1,0 +1,26 @@
+# Environment variables
+.env
+.env.*
+
+# Dependencies
+node_modules/
+
+# Database
+*.db
+*.db-journal
+
+# Build output
+dist/
+out/
+
+# Prisma generated
+generated/prisma
+
+# macOS
+.DS_Store
+
+# Electron
+release/
+
+# Logs
+*.log
