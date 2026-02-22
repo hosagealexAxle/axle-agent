@@ -28,14 +28,19 @@ const KILL_SWITCH_DEFAULT =
   String(process.env.KILL_SWITCH || "false").toLowerCase() === "true";
 // ======= OpenAI =======
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
-// Model should be one you have access to
 const OPENAI_MODEL = String(process.env.OPENAI_MODEL || "gpt-4.1-mini");
-// If you ever use a proxy later:
 const OPENAI_BASE_URL = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1");
-const BASE_PROMPT =
-  "You are Axle, an Etsy shop operator assistant. Etsy API is pending. " +
-  "Focus on planning, UI guidance, and safety/budget control. " +
-  "If asked for actions requiring Etsy API, propose a safe manual plan.";
+
+// ======= Dynamic System Prompt (rebalanced) =======
+const BASE_PROMPT = `You are Axle, an Etsy shop operator assistant. Your PRIMARY job is to respond helpfully to the user's message. Etsy API is pending approval.
+
+IMPORTANT: Always address the user's question or request FIRST. Then, only if relevant, reference your memory data below. Do NOT dump data unless asked.
+
+Guidelines:
+- Be conversational and direct
+- When asked for actions requiring Etsy API, propose a safe manual plan
+- Enforce budget caps — warn if approaching limits
+- Reference key facts naturally, don't list them unless asked`;
 
 async function buildSystemPrompt() {
   let prompt = BASE_PROMPT;
@@ -48,7 +53,7 @@ async function buildSystemPrompt() {
       if (!grouped[f.category]) grouped[f.category] = [];
       grouped[f.category].push(f.content);
     }
-    prompt += "\n\n== KEY FACTS (persistent memory) ==";
+    prompt += "\n\n== KEY FACTS (persistent memory — reference naturally, don't dump) ==";
     for (const [cat, items] of Object.entries(grouped)) {
       prompt += "\n[" + cat.toUpperCase() + "]";
       for (const item of items) prompt += "\n- " + item;
@@ -59,32 +64,39 @@ async function buildSystemPrompt() {
   const policy = await getPolicySnapshot();
   prompt += "\n\n== BUDGET STATE ==";
   prompt += "\nCaps: total=$" + policy.caps.total + " api=$" + policy.caps.api + " seo=$" + policy.caps.seo + " ads=$" + policy.caps.ads;
-  prompt += "\nMonth spend: $" + policy.spend.monthToDate.total;
-  prompt += "\nKill switch: " + (policy.killSwitch ? "ON" : "off");
+  prompt += "\nMonth spend: total=$" + policy.spend.monthToDate.total + " (api=$" + policy.spend.monthToDate.byCat.api + " seo=$" + policy.spend.monthToDate.byCat.seo + " ads=$" + policy.spend.monthToDate.byCat.ads + ")";
+  prompt += "\nToday spend: api=$" + policy.spend.today.byCat.api + " seo=$" + policy.spend.today.byCat.seo + " ads=$" + policy.spend.today.byCat.ads;
+  prompt += "\nKill switch: " + (policy.killSwitch ? "ON — all actions blocked" : "off");
 
   // Inject latest shop snapshot
   const snap = await prisma.shopSnapshot.findFirst({ orderBy: { capturedAt: "desc" } });
   if (snap) {
-    prompt += "\n\n== SHOP STATS ==";
+    prompt += "\n\n== LATEST SHOP STATS ==";
     prompt += "\nVisits=" + (snap.visits ?? "?") + " Orders=" + (snap.orders ?? "?") + " Revenue=$" + (snap.revenueUsd ?? "?") + " CVR=" + (snap.conversionRate ?? "?") + "%";
+    prompt += "\nPeriod: " + (snap.period || "unknown");
   }
 
-  // Inject recent actions
+  // Inject recent actions (compact)
   const actions = await prisma.actionLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 });
   if (actions.length > 0) {
-    prompt += "\n\n== RECENT ACTIONS ==";
+    prompt += "\n\n== RECENT ACTIONS (last 5) ==";
     for (const a of actions) {
-      prompt += "\n- [" + (a.type || a.actionType) + "] " + (a.label || a.status) + ": " + (a.detail || a.blockedReason || "");
+      prompt += "\n- [" + (a.type || a.actionType || "?") + "] " + (a.label || a.status || "") + (a.detail || a.blockedReason ? ": " + (a.detail || a.blockedReason || "") : "");
     }
   }
 
-  prompt += "\n\nRespond to the user's message directly first, then reference memory/data if relevant.";
   return prompt;
 }
 
 // ======= helpers =======
 function startOfDayISO(d = new Date()) {
   const dt = new Date(d);
+  dt.setHours(0, 0, 0, 0);
+  return dt.toISOString();
+}
+function startOfMonthISO(d = new Date()) {
+  const dt = new Date(d);
+  dt.setDate(1);
   dt.setHours(0, 0, 0, 0);
   return dt.toISOString();
 }
@@ -121,8 +133,33 @@ async function logAction({ type, label, detail, amountUsd, ok = true }) {
   }
 }
 async function getPolicySnapshot() {
-  // You can later add month-to-date tracking by category;
-  // for now we expose the configured caps + policy knobs.
+  const monthStart = startOfMonthISO();
+  const dayStart = startOfDayISO();
+
+  // Calculate real spend from BudgetLedger
+  const monthRows = await prisma.budgetLedger.findMany({
+    where: { createdAt: { gte: new Date(monthStart) } },
+  });
+  const todayRows = await prisma.budgetLedger.findMany({
+    where: { createdAt: { gte: new Date(dayStart) } },
+  });
+
+  function sumByCat(rows) {
+    const byCat = { api: 0, seo: 0, ads: 0 };
+    let total = 0;
+    for (const r of rows) {
+      const cat = (r.category || "").toLowerCase();
+      const amt = r.amountUsd || 0;
+      total += amt;
+      if (byCat[cat] !== undefined) byCat[cat] += amt;
+    }
+    return { total: Math.round(total * 100) / 100, byCat: {
+      api: Math.round(byCat.api * 100) / 100,
+      seo: Math.round(byCat.seo * 100) / 100,
+      ads: Math.round(byCat.ads * 100) / 100,
+    }};
+  }
+
   return {
     mode: POLICY_MODE,
     overrunMaxUsd: OVERRUN_MAX_USD,
@@ -142,9 +179,8 @@ async function getPolicySnapshot() {
       ads: DAILY_CAP_ADS_USD,
     },
     spend: {
-      // placeholder (you can wire real spend later)
-      monthToDate: { total: 0, byCat: { api: 0, seo: 0, ads: 0 } },
-      today: { byCat: { api: 0, seo: 0, ads: 0 } },
+      monthToDate: sumByCat(monthRows),
+      today: sumByCat(todayRows),
     },
     killSwitch: KILL_SWITCH_DEFAULT,
   };
@@ -162,7 +198,25 @@ app.get("/api/policy", async (_req, res) => {
   const policy = await getPolicySnapshot();
   res.json({ ok: true, policy });
 });
-// Thread list (persistent memory)
+
+// ======= Budget summary (for dashboard chart) =======
+app.get("/api/budget/summary", async (_req, res) => {
+  try {
+    const policy = await getPolicySnapshot();
+    res.json({
+      ok: true,
+      caps: policy.caps,
+      dailyCaps: policy.dailyCaps,
+      monthToDate: policy.spend.monthToDate,
+      today: policy.spend.today,
+    });
+  } catch (e) {
+    console.error("GET /api/budget/summary error:", e);
+    return safeJson(res, 500, { ok: false, error: "budget_summary_failed" });
+  }
+});
+
+// ======= Threads =======
 app.get("/api/threads", async (_req, res) => {
   try {
     const threads = await prisma.thread.findMany({
@@ -175,7 +229,7 @@ app.get("/api/threads", async (_req, res) => {
     return safeJson(res, 500, { ok: false, error: "threads_failed" });
   }
 });
-// Create thread
+
 app.post("/api/threads", async (req, res) => {
   const body = z
     .object({
@@ -194,7 +248,36 @@ app.post("/api/threads", async (req, res) => {
     return safeJson(res, 500, { ok: false, error: "thread_create_failed" });
   }
 });
-// Load a thread's messages (compat endpoint your UI was already pointing at)
+
+// Rename thread
+app.patch("/api/threads/:id", async (req, res) => {
+  const body = z.object({ title: z.string().min(1) }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const thread = await prisma.thread.update({
+      where: { id: req.params.id },
+      data: { title: body.data.title },
+    });
+    res.json({ ok: true, thread });
+  } catch (e) {
+    console.error("PATCH /api/threads error:", e);
+    return safeJson(res, 500, { ok: false, error: "thread_rename_failed" });
+  }
+});
+
+// Delete thread (cascade deletes messages)
+app.delete("/api/threads/:id", async (req, res) => {
+  try {
+    await prisma.message.deleteMany({ where: { threadId: req.params.id } });
+    await prisma.thread.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/threads error:", e);
+    return safeJson(res, 500, { ok: false, error: "thread_delete_failed" });
+  }
+});
+
+// Load a thread's messages
 app.get("/api/chat/thread", async (req, res) => {
   const threadId = String(req.query.threadId || "default");
   try {
@@ -218,6 +301,7 @@ app.get("/api/chat/thread", async (req, res) => {
     return safeJson(res, 500, { ok: false, error: "thread_load_failed" });
   }
 });
+
 // Action log (last N)
 app.get("/api/actions", async (req, res) => {
   try {
@@ -296,7 +380,48 @@ app.delete("/api/keyfacts/:id", async (req, res) => {
   }
 });
 
-// Chat endpoint (writes to DB => persistent memory)
+// ======= Shop data endpoints =======
+app.post("/api/shop/snapshot", async (req, res) => {
+  try {
+    const snap = await prisma.shopSnapshot.create({ data: req.body });
+    res.json({ ok: true, snapshot: snap });
+  } catch (e) {
+    console.error("POST /api/shop/snapshot error:", e);
+    return safeJson(res, 500, { ok: false, error: "snapshot_failed" });
+  }
+});
+
+app.get("/api/shop/snapshot", async (_req, res) => {
+  try {
+    const snap = await prisma.shopSnapshot.findFirst({ orderBy: { capturedAt: "desc" } });
+    res.json({ ok: true, snapshot: snap });
+  } catch (e) {
+    console.error("GET /api/shop/snapshot error:", e);
+    return safeJson(res, 500, { ok: false, error: "snapshot_failed" });
+  }
+});
+
+app.post("/api/listings/metric", async (req, res) => {
+  try {
+    const metric = await prisma.listingMetric.create({ data: req.body });
+    res.json({ ok: true, metric });
+  } catch (e) {
+    console.error("POST /api/listings/metric error:", e);
+    return safeJson(res, 500, { ok: false, error: "metric_failed" });
+  }
+});
+
+app.post("/api/budget/log", async (req, res) => {
+  try {
+    const entry = await prisma.budgetLedger.create({ data: req.body });
+    res.json({ ok: true, entry });
+  } catch (e) {
+    console.error("POST /api/budget/log error:", e);
+    return safeJson(res, 500, { ok: false, error: "budget_log_failed" });
+  }
+});
+
+// ======= Chat endpoint =======
 app.post("/api/chat", async (req, res) => {
   try {
     const body = z
@@ -315,17 +440,13 @@ app.post("/api/chat", async (req, res) => {
       },
     });
     await bumpThreadUpdatedAt(thread.id);
-    // If no key => safe mode response, still persist assistant reply.
+    // If no key => safe mode response
     if (!OPENAI_API_KEY) {
       const reply =
         `Axle (planning mode): You said "${body.message}". ` +
         "Etsy API is pending so I'm operating in safe mode.";
       await prisma.message.create({
-        data: {
-          threadId: thread.id,
-          role: "assistant",
-          content: reply,
-        },
+        data: { threadId: thread.id, role: "assistant", content: reply },
       });
       await bumpThreadUpdatedAt(thread.id);
       await logAction({ type: "chat", label: "safe_mode_reply", detail: reply, ok: true });
@@ -343,7 +464,7 @@ app.post("/api/chat", async (req, res) => {
       { role: "system", content: systemPrompt },
       ...recent.map((m) => ({ role: m.role, content: m.content })),
     ];
-    // Call OpenAI Chat Completions (simple + stable)
+    // Call OpenAI Chat Completions
     const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
@@ -354,7 +475,7 @@ app.post("/api/chat", async (req, res) => {
         model: OPENAI_MODEL,
         messages: inputMessages,
         temperature: 0.6,
-        max_tokens: 350,
+        max_tokens: 600,
       }),
     });
     if (!r.ok) {
@@ -378,17 +499,13 @@ app.post("/api/chat", async (req, res) => {
     });
     await bumpThreadUpdatedAt(thread.id);
     await logAction({ type: "chat", label: "reply", detail: reply.slice(0, 500), ok: true });
-    return res.json({
-      ok: true,
-      mode: "chat",
-      reply,
-      actions: [],
-    });
+    return res.json({ ok: true, mode: "chat", reply, actions: [] });
   } catch (e) {
     console.error("/api/chat error:", e);
     return safeJson(res, 400, { ok: false, error: "invalid_request" });
   }
 });
+
 app.listen(PORT, () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
 });
