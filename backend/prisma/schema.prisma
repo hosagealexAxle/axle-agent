@@ -84,3 +84,13 @@ model SystemState {
   metaJson  Json?
   updatedAt DateTime @updatedAt
 }
+
+model KeyFact {
+  id        String   @id @default(cuid())
+  category  String   // "preference", "strategy", "product", "rule", "note"
+  content   String
+  source    String?  // "user", "llm", "system"
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
