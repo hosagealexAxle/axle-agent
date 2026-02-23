@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { buildAuthUrl, exchangeCode, etsyFetch, ETSY_CLIENT_ID } from "./etsy.js";
+import { startAgent, stopAgent, getAgentStatus } from "./agent.js";
 dotenv.config();
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -27,21 +28,34 @@ const CONFIDENCE_MIN = Number(process.env.CONFIDENCE_MIN || 0.85);
 const APPROVAL_THRESHOLD_USD = Number(process.env.APPROVAL_THRESHOLD_USD || 25);
 const KILL_SWITCH_DEFAULT =
   String(process.env.KILL_SWITCH || "false").toLowerCase() === "true";
-// ======= OpenAI =======
+// ======= LLM Config =======
+const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY || "").trim();
+const ANTHROPIC_MODEL = String(process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6");
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_MODEL = String(process.env.OPENAI_MODEL || "gpt-4.1-mini");
 const OPENAI_BASE_URL = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1");
+const USE_CLAUDE = !!ANTHROPIC_API_KEY;
 
 // ======= Dynamic System Prompt (rebalanced) =======
-const BASE_PROMPT = `You are Axle, an Etsy shop operator assistant. Your PRIMARY job is to respond helpfully to the user's message. Etsy API is pending approval.
+const BASE_PROMPT = `You are Axle, an autonomous Etsy shop operator for MrsMillennialDesigns. You are powered by Claude (Anthropic).
 
-IMPORTANT: Always address the user's question or request FIRST. Then, only if relevant, reference your memory data below. Do NOT dump data unless asked.
+Your job is to help the shop owner maximize revenue, optimize listings, and manage the shop efficiently. You operate semi-autonomously — take action without asking unless spending exceeds the approval threshold.
 
-Guidelines:
-- Be conversational and direct
-- When asked for actions requiring Etsy API, propose a safe manual plan
-- Enforce budget caps — warn if approaching limits
-- Reference key facts naturally, don't list them unless asked`;
+Core behaviors:
+- Be direct, concise, and action-oriented
+- Address the user's message FIRST, then reference data if relevant
+- When you have enough data to act, propose specific actions with expected ROI
+- Enforce budget caps — warn proactively if approaching limits
+- Track what works and what doesn't — learn from results
+- Reference key facts naturally, never dump data unless asked
+
+Autonomous guidelines:
+- SEO changes under $${String(process.env.APPROVAL_THRESHOLD_USD || 25)}: execute without asking
+- Spending above approval threshold: present plan and wait for approval
+- Kill switch ON: halt ALL automated actions immediately
+- Always log actions so the owner can review what you did and why
+
+When Etsy API is connected, you can directly manage listings, read sales data, and optimize the shop. Until then, provide actionable manual plans.`;
 
 async function buildSystemPrompt() {
   let prompt = BASE_PROMPT;
@@ -193,7 +207,11 @@ function safeJson(res, status, obj) {
 }
 // ======= routes =======
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() });
+  res.json({
+    ok: true,
+    ts: new Date().toISOString(),
+    llm: USE_CLAUDE ? `claude (${ANTHROPIC_MODEL})` : `openai (${OPENAI_MODEL})`,
+  });
 });
 app.get("/api/policy", async (_req, res) => {
   const policy = await getPolicySnapshot();
@@ -441,16 +459,14 @@ app.post("/api/chat", async (req, res) => {
       },
     });
     await bumpThreadUpdatedAt(thread.id);
-    // If no key => safe mode response
-    if (!OPENAI_API_KEY) {
+    // If no LLM key => safe mode response
+    if (!ANTHROPIC_API_KEY && !OPENAI_API_KEY) {
       const reply =
-        `Axle (planning mode): You said "${body.message}". ` +
-        "Etsy API is pending so I'm operating in safe mode.";
+        "Axle (offline): No LLM API key configured. Add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env.";
       await prisma.message.create({
         data: { threadId: thread.id, role: "assistant", content: reply },
       });
       await bumpThreadUpdatedAt(thread.id);
-      await logAction({ type: "chat", label: "safe_mode_reply", detail: reply, ok: true });
       return res.json({ ok: true, mode: "chat", reply, actions: [] });
     }
     // Pull recent conversation as context
@@ -461,45 +477,79 @@ app.post("/api/chat", async (req, res) => {
     });
     // Build dynamic system prompt with injected memory
     const systemPrompt = await buildSystemPrompt();
-    const inputMessages = [
-      { role: "system", content: systemPrompt },
-      ...recent.map((m) => ({ role: m.role, content: m.content })),
-    ];
-    // Call OpenAI Chat Completions
-    const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages: inputMessages,
-        temperature: 0.6,
-        max_tokens: 600,
-      }),
-    });
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      console.error("OpenAI error:", r.status, text.slice(0, 800));
-      const reply = "I hit an error talking to the model. Try again.";
-      await prisma.message.create({
-        data: { threadId: thread.id, role: "assistant", content: reply },
+
+    let reply;
+    const llmProvider = USE_CLAUDE ? "claude" : "openai";
+
+    if (USE_CLAUDE) {
+      // ======= Anthropic Claude Messages API =======
+      const claudeMessages = recent.map((m) => ({ role: m.role, content: m.content }));
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: ANTHROPIC_MODEL,
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: claudeMessages,
+        }),
       });
-      await bumpThreadUpdatedAt(thread.id);
-      await logAction({ type: "chat", label: "openai_error", detail: text.slice(0, 800), ok: false });
-      return safeJson(res, 500, { ok: false, error: "openai_failed", detail: text.slice(0, 400) });
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        console.error("Claude error:", r.status, text.slice(0, 800));
+        const errReply = "I hit an error talking to Claude. Try again.";
+        await prisma.message.create({
+          data: { threadId: thread.id, role: "assistant", content: errReply },
+        });
+        await bumpThreadUpdatedAt(thread.id);
+        await logAction({ type: "chat", label: "claude_error", detail: text.slice(0, 800), ok: false });
+        return safeJson(res, 500, { ok: false, error: "claude_failed", detail: text.slice(0, 400) });
+      }
+      const data = await r.json();
+      reply = (data?.content?.[0]?.text || "").trim() || "I did not get a response back.";
+    } else {
+      // ======= OpenAI Chat Completions (fallback) =======
+      const inputMessages = [
+        { role: "system", content: systemPrompt },
+        ...recent.map((m) => ({ role: m.role, content: m.content })),
+      ];
+      const r = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          messages: inputMessages,
+          temperature: 0.6,
+          max_tokens: 600,
+        }),
+      });
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        console.error("OpenAI error:", r.status, text.slice(0, 800));
+        const errReply = "I hit an error talking to the model. Try again.";
+        await prisma.message.create({
+          data: { threadId: thread.id, role: "assistant", content: errReply },
+        });
+        await bumpThreadUpdatedAt(thread.id);
+        await logAction({ type: "chat", label: "openai_error", detail: text.slice(0, 800), ok: false });
+        return safeJson(res, 500, { ok: false, error: "openai_failed", detail: text.slice(0, 400) });
+      }
+      const data = await r.json();
+      reply = (data?.choices?.[0]?.message?.content || "").trim() || "I did not get a response back.";
     }
-    const data = await r.json();
-    const reply =
-      (data?.choices?.[0]?.message?.content && String(data.choices[0].message.content).trim()) ||
-      "I did not get a text response back.";
     // Persist assistant reply
     await prisma.message.create({
       data: { threadId: thread.id, role: "assistant", content: reply },
     });
     await bumpThreadUpdatedAt(thread.id);
-    await logAction({ type: "chat", label: "reply", detail: reply.slice(0, 500), ok: true });
+    await logAction({ type: "chat", label: `reply (${llmProvider})`, detail: reply.slice(0, 500), ok: true });
     return res.json({ ok: true, mode: "chat", reply, actions: [] });
   } catch (e) {
     console.error("/api/chat error:", e);
@@ -662,6 +712,133 @@ app.get("/api/etsy/receipts", async (req, res) => {
   }
 });
 
+// ======= Agent endpoints =======
+app.get("/api/agent/status", async (_req, res) => {
+  try {
+    const status = await getAgentStatus(prisma);
+    res.json({ ok: true, ...status });
+  } catch (e) {
+    console.error("GET /api/agent/status error:", e);
+    return safeJson(res, 500, { ok: false, error: "agent_status_failed" });
+  }
+});
+
+app.post("/api/agent/start", (_req, res) => {
+  startAgent(prisma, logAction, 60000);
+  res.json({ ok: true, message: "Agent started" });
+});
+
+app.post("/api/agent/stop", (_req, res) => {
+  stopAgent();
+  res.json({ ok: true, message: "Agent stopped" });
+});
+
+app.get("/api/agent/tasks", async (req, res) => {
+  try {
+    const status = req.query.status;
+    const where = status ? { status } : {};
+    const tasks = await prisma.agentTask.findMany({
+      where,
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+      take: 50,
+    });
+    res.json({ ok: true, tasks });
+  } catch (e) {
+    console.error("GET /api/agent/tasks error:", e);
+    return safeJson(res, 500, { ok: false, error: "tasks_failed" });
+  }
+});
+
+app.post("/api/agent/tasks", async (req, res) => {
+  const body = z.object({
+    type: z.enum(["seo_optimize", "listing_refresh", "ad_launch", "analysis", "custom"]),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    priority: z.number().min(1).max(10).optional(),
+    estimatedCost: z.number().optional(),
+    targetId: z.string().optional(),
+    scheduledFor: z.string().optional(),
+  }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const estCost = body.data.estimatedCost || 0;
+    const task = await prisma.agentTask.create({
+      data: {
+        type: body.data.type,
+        title: body.data.title,
+        description: body.data.description || "",
+        priority: body.data.priority || 5,
+        estimatedCost: estCost,
+        targetId: body.data.targetId || null,
+        scheduledFor: body.data.scheduledFor ? new Date(body.data.scheduledFor) : null,
+        status: estCost > APPROVAL_THRESHOLD_USD ? "needs_approval" : "pending",
+        autoApproved: estCost <= APPROVAL_THRESHOLD_USD,
+      },
+    });
+    res.json({ ok: true, task });
+  } catch (e) {
+    console.error("POST /api/agent/tasks error:", e);
+    return safeJson(res, 500, { ok: false, error: "task_create_failed" });
+  }
+});
+
+app.post("/api/agent/tasks/:id/approve", async (req, res) => {
+  try {
+    const task = await prisma.agentTask.update({
+      where: { id: req.params.id },
+      data: { status: "approved" },
+    });
+    await logAction({ type: "agent", label: "task_approved", detail: task.title, ok: true });
+    res.json({ ok: true, task });
+  } catch (e) {
+    console.error("POST /api/agent/tasks/:id/approve error:", e);
+    return safeJson(res, 500, { ok: false, error: "approve_failed" });
+  }
+});
+
+app.delete("/api/agent/tasks/:id", async (req, res) => {
+  try {
+    await prisma.agentTask.delete({ where: { id: req.params.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /api/agent/tasks/:id error:", e);
+    return safeJson(res, 500, { ok: false, error: "task_delete_failed" });
+  }
+});
+
+// ======= ROI endpoints =======
+app.get("/api/roi/summary", async (_req, res) => {
+  try {
+    const entries = await prisma.roiTracker.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    const totalCost = entries.reduce((s, r) => s + (r.costUsd || 0), 0);
+    const measured = entries.filter((r) => r.roiMultiple !== null);
+    const totalRevChange = measured.reduce((s, r) => s + (r.revenueChange || 0), 0);
+    const avgRoi = measured.length > 0
+      ? measured.reduce((s, r) => s + (r.roiMultiple || 0), 0) / measured.length
+      : null;
+    res.json({
+      ok: true,
+      totalActions: entries.length,
+      totalCost: Math.round(totalCost * 100) / 100,
+      measuredActions: measured.length,
+      totalRevenueChange: Math.round(totalRevChange * 100) / 100,
+      averageRoi: avgRoi ? Math.round(avgRoi * 10) / 10 : null,
+      entries: entries.slice(0, 20),
+    });
+  } catch (e) {
+    console.error("GET /api/roi/summary error:", e);
+    return safeJson(res, 500, { ok: false, error: "roi_failed" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
+  console.log(`LLM: ${USE_CLAUDE ? `Claude (${ANTHROPIC_MODEL})` : `OpenAI (${OPENAI_MODEL})`}`);
+  // Auto-start agent if Claude is configured
+  if (USE_CLAUDE) {
+    startAgent(prisma, logAction, 60000);
+  }
 });

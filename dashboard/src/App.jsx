@@ -20,6 +20,9 @@ export default function App() {
   const [editingThreadId, setEditingThreadId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [etsyStatus, setEtsyStatus] = useState(null);
+  const [llmInfo, setLlmInfo] = useState("");
+  const [agentStatus, setAgentStatus] = useState(null);
+  const [agentTasks, setAgentTasks] = useState([]);
   const chatRef = useRef(null);
 
   async function refreshHealth() {
@@ -27,6 +30,7 @@ export default function App() {
       const r = await fetch(`${API_BASE}/api/health`);
       const j = await r.json();
       setBackendOk(Boolean(j.ok));
+      if (j.llm) setLlmInfo(j.llm);
     } catch { setBackendOk(false); }
   }
 
@@ -137,6 +141,48 @@ export default function App() {
     } catch { /* ignore */ }
   }
 
+  async function loadAgentStatus() {
+    try {
+      const r = await fetch(`${API_BASE}/api/agent/status`);
+      const j = await r.json();
+      if (j.ok) setAgentStatus(j);
+    } catch { /* ignore */ }
+  }
+
+  async function loadAgentTasks() {
+    try {
+      const r = await fetch(`${API_BASE}/api/agent/tasks`);
+      const j = await r.json();
+      if (j.ok) setAgentTasks(j.tasks || []);
+    } catch { /* ignore */ }
+  }
+
+  async function toggleAgent() {
+    try {
+      const endpoint = agentStatus?.active ? "stop" : "start";
+      await fetch(`${API_BASE}/api/agent/${endpoint}`, { method: "POST" });
+      loadAgentStatus();
+    } catch { /* ignore */ }
+  }
+
+  async function approveTask(taskId) {
+    try {
+      await fetch(`${API_BASE}/api/agent/tasks/${taskId}/approve`, { method: "POST" });
+      loadAgentTasks();
+    } catch { /* ignore */ }
+  }
+
+  async function runAnalysis() {
+    try {
+      await fetch(`${API_BASE}/api/agent/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "analysis", title: "Shop analysis", description: "Analyze shop performance and suggest improvements" }),
+      });
+      loadAgentTasks();
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     refreshHealth();
     loadThreads();
@@ -145,7 +191,9 @@ export default function App() {
     loadShopStats();
     loadActions();
     loadEtsyStatus();
-    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); loadEtsyStatus(); }, 5000);
+    loadAgentStatus();
+    loadAgentTasks();
+    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); loadEtsyStatus(); loadAgentStatus(); loadAgentTasks(); }, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -264,6 +312,7 @@ export default function App() {
             <span className={backendOk ? "dot green" : "dot red"} />
             {backendOk ? "Connected" : "Offline"}
           </div>
+          {llmInfo && <div className="llmBadge">{llmInfo}</div>}
         </div>
       </div>
 
@@ -362,6 +411,55 @@ export default function App() {
           ) : (
             <div className="mini">No recent activity</div>
           )}
+
+          <div className="sectionTitle">Agent</div>
+          <div className="agentRow">
+            <div className="agentStatusLine">
+              <span className={agentStatus?.active ? "dot green" : "dot red"} />
+              <span>{agentStatus?.active ? "Running" : "Stopped"}</span>
+            </div>
+            <button className="btn quickBtn" onClick={toggleAgent}>
+              {agentStatus?.active ? "Pause" : "Start"}
+            </button>
+          </div>
+          {agentStatus && (
+            <div className="agentStats">
+              <div className="agentStat">
+                <span className="agentStatNum">{agentStatus.completedToday || 0}</span>
+                <span className="agentStatLabel">Done today</span>
+              </div>
+              <div className="agentStat">
+                <span className="agentStatNum">{agentStatus.pending || 0}</span>
+                <span className="agentStatLabel">Queued</span>
+              </div>
+              <div className="agentStat">
+                <span className="agentStatNum" style={{ color: agentStatus.needsApproval > 0 ? "#ff6b6b" : "inherit" }}>
+                  {agentStatus.needsApproval || 0}
+                </span>
+                <span className="agentStatLabel">Need OK</span>
+              </div>
+              {agentStatus.roi?.averageRoi !== null && (
+                <div className="agentStat">
+                  <span className="agentStatNum" style={{ color: "#4ade80" }}>
+                    {agentStatus.roi.averageRoi}x
+                  </span>
+                  <span className="agentStatLabel">Avg ROI</span>
+                </div>
+              )}
+            </div>
+          )}
+          {agentTasks.filter(t => t.status === "needs_approval").length > 0 && (
+            <div className="approvalList">
+              {agentTasks.filter(t => t.status === "needs_approval").map((t) => (
+                <div key={t.id} className="approvalItem">
+                  <div className="approvalTitle">{t.title}</div>
+                  <div className="approvalCost">${t.estimatedCost?.toFixed(2)}</div>
+                  <button className="btn quickBtn" onClick={() => approveTask(t.id)}>Approve</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button className="btn quickBtn" onClick={runAnalysis} style={{marginTop: 4}}>Run Analysis</button>
 
           <div className="sectionTitle">Etsy Connection</div>
           {etsyStatus?.connected ? (

@@ -101,3 +101,51 @@ model EtsyToken {
   shopId        String?
   updatedAt     DateTime @updatedAt
 }
+
+model AgentTask {
+  id            String   @id @default(cuid())
+  type          String   // "seo_optimize", "listing_refresh", "ad_launch", "analysis", "custom"
+  title         String
+  description   String
+  status        String   @default("pending") // "pending", "approved", "running", "completed", "failed", "needs_approval"
+  priority      Int      @default(5) // 1=highest, 10=lowest
+  estimatedCost Float?   // estimated USD cost
+  actualCost    Float?   // actual USD spent
+  resultJson    String?  // JSON result data
+  errorMessage  String?
+  targetId      String?  // listing ID or other target
+  autoApproved  Boolean  @default(false)
+  scheduledFor  DateTime? // when to run (null = run ASAP)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, scheduledFor])
+}
+
+model RoiTracker {
+  id              String   @id @default(cuid())
+  taskId          String?  // linked AgentTask
+  actionType      String   // "seo_change", "listing_refresh", "ad_spend", etc.
+  targetId        String?  // listing ID
+  targetTitle     String?
+  costUsd         Float    @default(0)
+  // Before metrics (snapshot at action time)
+  beforeVisits    Int?
+  beforeOrders    Int?
+  beforeRevenue   Float?
+  beforeCvr       Float?
+  // After metrics (measured later)
+  afterVisits     Int?
+  afterOrders     Int?
+  afterRevenue    Float?
+  afterCvr        Float?
+  // Calculated
+  revenueChange   Float?
+  roiMultiple     Float?   // (revenue gained) / cost
+  measuredAt      DateTime?
+  period          String   @default("7d") // measurement window
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

@@ -308,4 +308,85 @@ body {
 .etsyStatus { display: flex; flex-direction: column; gap: 6px; }
 .etsyConnected, .etsyDisconnected { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 
+/* LLM badge */
+.llmBadge {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  padding: 2px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* ===== Agent UI ===== */
+.agentRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agentStatusLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.agentStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.agentStat {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agentStatNum {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.agentStatLabel {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.approvalList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.approvalItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255,107,107,0.06);
+  border: 1px solid rgba(255,107,107,0.15);
+}
+.approvalTitle {
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approvalCost {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff6b6b;
+  white-space: nowrap;
+}
+
 .mini { font-size: 12px; color: var(--muted); }
