@@ -58,16 +58,13 @@ model ListingMetric {
 }
 
 model ActionLog {
-  id            String   @id @default(cuid())
-  shopId         String
-  actionType     String
-  targetId       String?
-  beforeJson     Json?
-  afterJson      Json?
-  confidence     Float?
-  status         String   @default("planned")
-  blockedReason  String?
-  createdAt      DateTime @default(now())
+  id         String   @id @default(cuid())
+  type       String
+  label      String   @default("")
+  detail     String   @default("")
+  amountUsd  Float?
+  ok         Boolean  @default(true)
+  createdAt  DateTime @default(now())
 }
 
 model BudgetLedger {

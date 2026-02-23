@@ -2,14 +2,16 @@
   "name": "axle-desktop",
   "productName": "Axle",
   "version": "0.1.0",
-  "description": "Axle desktop app",
+  "description": "Axle — Etsy operator console",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:unsigned": "electron-builder --mac --config.mac.identity=null"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "electron": "^33.0.0",
     "electron-builder": "^24.13.3"
   },
@@ -20,18 +22,52 @@
       "output": "release"
     },
     "files": [
-      "**/*"
+      "**/*",
+      "!*.bak"
     ],
     "extraResources": [
-      { "from": "../dashboard/dist", "to": "dashboard/dist" },
-      { "from": "../backend", "to": "backend" }
+      {
+        "from": "../dashboard/dist",
+        "to": "dashboard/dist"
+      },
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!node_modules/.cache/**",
+          "!*.db",
+          "!*.bak"
+        ]
+      }
     ],
     "mac": {
-      "target": ["dmg"],
-      "icon": "assets/icon.icns"
-    }
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.business",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.plist",
+      "entitlementsInherit": "entitlements.plist"
+    },
+    "dmg": {
+      "title": "Axle",
+      "iconSize": 80,
+      "contents": [
+        {
+          "x": 170,
+          "y": 180
+        },
+        {
+          "x": 430,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "afterSign": "scripts/notarize.js"
   }
 }
-
-
-

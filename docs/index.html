@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Axle — Etsy Shop Operator Console</title>
+  <style>
+    :root { --bg: #0a0e13; --panel: #0f1621; --text: #ffffffeb; --muted: #ffffff80; --accent: #5a78ff; --green: #4ade80; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, sans-serif; line-height: 1.6; }
+    .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero */
+    .hero { padding: 80px 0 60px; text-align: center; }
+    .hero-logo { font-size: 48px; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
+    .hero-logo span { color: #4caf50; }
+    .hero-sub { font-size: 18px; color: var(--muted); max-width: 600px; margin: 0 auto 32px; }
+    .badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(90,120,255,0.12); color: var(--accent); border: 1px solid rgba(90,120,255,0.25); margin-bottom: 24px; }
+
+    /* Screenshot */
+    .screenshot-wrap { margin: 40px 0 60px; text-align: center; }
+    .screenshot-wrap img { max-width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+
+    /* Features */
+    .features { padding: 60px 0; }
+    .features h2 { font-size: 28px; font-weight: 700; margin-bottom: 32px; text-align: center; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { background: var(--panel); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 24px; }
+    .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+    .icon { font-size: 20px; }
+
+    /* How it works */
+    .how { padding: 60px 0; }
+    .how h2 { font-size: 28px; font-weight: 700; margin-bottom: 32px; text-align: center; }
+    .steps { display: flex; flex-direction: column; gap: 16px; max-width: 600px; margin: 0 auto; }
+    .step { display: flex; gap: 16px; align-items: flex-start; }
+    .step-num { width: 32px; height: 32px; border-radius: 50%; background: rgba(90,120,255,0.15); color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+    .step-text h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step-text p { font-size: 13px; color: var(--muted); }
+
+    /* Tech */
+    .tech { padding: 60px 0; text-align: center; }
+    .tech h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; }
+    .tech p { color: var(--muted); font-size: 14px; max-width: 600px; margin: 0 auto 24px; }
+    .tech-tags { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    .tag { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--muted); }
+
+    /* Privacy */
+    .privacy { padding: 60px 0; border-top: 1px solid rgba(255,255,255,0.06); }
+    .privacy h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+    .privacy-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; max-width: 700px; margin: 0 auto; }
+    .priv-item { text-align: center; padding: 20px; }
+    .priv-item .icon { font-size: 28px; margin-bottom: 8px; }
+    .priv-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .priv-item p { font-size: 12px; color: var(--muted); }
+
+    /* Footer */
+    .footer { padding: 40px 0; border-top: 1px solid rgba(255,255,255,0.06); text-align: center; color: var(--muted); font-size: 12px; }
+    .footer a { color: var(--accent); text-decoration: none; }
+
+    /* API section */
+    .api-use { padding: 60px 0; }
+    .api-use h2 { font-size: 28px; font-weight: 700; margin-bottom: 16px; text-align: center; }
+    .api-use p { color: var(--muted); font-size: 14px; max-width: 650px; margin: 0 auto 16px; text-align: center; }
+    .scope-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+    .scope { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-family: monospace; background: rgba(74,222,128,0.08); border: 1px solid rgba(74,222,128,0.2); color: var(--green); }
+
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: 1fr; }
+      .privacy-grid { grid-template-columns: 1fr; }
+      .hero { padding: 48px 0 32px; }
+      .hero-logo { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <section class="hero">
+      <div class="badge">Personal Use &middot; Desktop App</div>
+      <div class="hero-logo"><span>A</span>xle</div>
+      <p class="hero-sub">A desktop operator console for managing an Etsy shop — budget tracking, SEO planning, listing analytics, and shop automation in one place.</p>
+    </section>
+
+    <section class="features">
+      <h2>Features</h2>
+      <div class="grid">
+        <div class="card">
+          <h3><span class="icon">&#128176;</span> Budget Enforcement</h3>
+          <p>Real-time budget tracking with monthly and daily caps across API, SEO, and Ads categories. Color-coded progress bars warn before overspending.</p>
+        </div>
+        <div class="card">
+          <h3><span class="icon">&#128202;</span> Shop Analytics</h3>
+          <p>Dashboard displays visits, orders, revenue, and conversion rate. Track listing-level performance metrics over time.</p>
+        </div>
+        <div class="card">
+          <h3><span class="icon">&#128270;</span> SEO Planning</h3>
+          <p>Plan and track SEO improvements for listings. Chat-based workflow helps optimize titles, tags, and descriptions.</p>
+        </div>
+        <div class="card">
+          <h3><span class="icon">&#129302;</span> AI Chat Assistant</h3>
+          <p>Built-in conversational assistant with persistent memory. Remembers your shop strategy, preferences, and key facts across sessions.</p>
+        </div>
+        <div class="card">
+          <h3><span class="icon">&#128200;</span> Listing Management</h3>
+          <p>View and manage listing performance data. Track individual listing visits, orders, revenue, and conversion rates.</p>
+        </div>
+        <div class="card">
+          <h3><span class="icon">&#128274;</span> Policy Controls</h3>
+          <p>Configurable safety guardrails — ROI minimums, confidence thresholds, approval requirements, and a kill switch to halt all automated actions.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="api-use">
+      <h2>Etsy API Integration</h2>
+      <p>Axle connects to the Etsy Open API v3 to automate shop data retrieval for a single shop (<strong>MrsMillennialDesigns</strong>). This is a <strong>personal-use</strong> application — not a commercial multi-seller platform.</p>
+      <p>The app uses OAuth 2.0 with PKCE for secure authentication and requests only the scopes necessary for shop management:</p>
+      <div class="scope-list">
+        <span class="scope">shops_r</span>
+        <span class="scope">listings_r</span>
+        <span class="scope">listings_w</span>
+        <span class="scope">transactions_r</span>
+        <span class="scope">profile_r</span>
+      </div>
+    </section>
+
+    <section class="how">
+      <h2>How It Works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">
+            <h4>Connect Your Shop</h4>
+            <p>Authenticate with Etsy via OAuth 2.0. Axle receives read/write access to your shop data only.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">
+            <h4>Data Syncs Automatically</h4>
+            <p>Shop stats, listing metrics, and order data flow into the dashboard. No more manual CSV exports.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">
+            <h4>Plan &amp; Execute</h4>
+            <p>Use the chat assistant to plan SEO changes, manage budgets, and make data-driven decisions — all with guardrails to prevent overspending.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tech">
+      <h2>Built With</h2>
+      <p>Modern, open-source stack designed for reliability and speed.</p>
+      <div class="tech-tags">
+        <span class="tag">Electron 33</span>
+        <span class="tag">React 19</span>
+        <span class="tag">Node.js</span>
+        <span class="tag">Express</span>
+        <span class="tag">Prisma + SQLite</span>
+        <span class="tag">Vite 7</span>
+        <span class="tag">Etsy Open API v3</span>
+        <span class="tag">OAuth 2.0 + PKCE</span>
+      </div>
+    </section>
+
+    <section class="privacy">
+      <h2>Privacy &amp; Security</h2>
+      <div class="privacy-grid">
+        <div class="priv-item">
+          <div class="icon">&#127968;</div>
+          <h4>Runs Locally</h4>
+          <p>All data stays on your machine. No cloud servers, no third-party storage.</p>
+        </div>
+        <div class="priv-item">
+          <div class="icon">&#128274;</div>
+          <h4>Secure Auth</h4>
+          <p>OAuth 2.0 with PKCE. API keys are never stored in code or transmitted insecurely.</p>
+        </div>
+        <div class="priv-item">
+          <div class="icon">&#128100;</div>
+          <h4>Single User</h4>
+          <p>Personal-use only. Connects to one shop. No multi-seller or commercial features.</p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>Axle v0.1.0 &middot; Personal Etsy shop management tool</p>
+      <p style="margin-top: 8px;">
+        <a href="https://github.com/hosagealexAxle/axle-agent">GitHub Repository</a>
+      </p>
+      <p style="margin-top: 8px;">&copy; 2026 MrsMillennialDesigns</p>
+    </footer>
+
+  </div>
+</body>
+</html>
