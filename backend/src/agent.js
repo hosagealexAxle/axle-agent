@@ -54,7 +54,7 @@ async function processTask(prisma, task, logAction) {
 
     switch (task.type) {
       case "analysis": {
-        // Run a shop analysis
+        // Run a shop analysis — skip if no data to avoid wasting tokens
         const snapshot = await prisma.shopSnapshot.findFirst({ orderBy: { capturedAt: "desc" } });
         const listings = await prisma.listingMetric.findMany({
           orderBy: { capturedAt: "desc" },
@@ -63,6 +63,11 @@ async function processTask(prisma, task, logAction) {
         const budget = await prisma.budgetLedger.findMany({
           where: { createdAt: { gte: new Date(Date.now() - 30 * 24 * 3600 * 1000) } },
         });
+
+        if (!snapshot && listings.length === 0) {
+          result = { skipped: true, reason: "No shop data yet — connect Etsy and sync first" };
+          break;
+        }
 
         const analysisPrompt = `You are Axle's autonomous analysis agent. Analyze this shop data and provide 3-5 specific, actionable recommendations. Be concise.
 

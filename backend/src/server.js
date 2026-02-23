@@ -837,8 +837,14 @@ app.get("/api/roi/summary", async (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
   console.log(`LLM: ${USE_CLAUDE ? `Claude (${ANTHROPIC_MODEL})` : `OpenAI (${OPENAI_MODEL})`}`);
-  // Auto-start agent if Claude is configured
+  // Only auto-start agent if Claude + Etsy are both configured
   if (USE_CLAUDE) {
-    startAgent(prisma, logAction, 60000);
+    const token = await prisma.etsyToken.findFirst({ where: { id: "default" } }).catch(() => null);
+    if (token?.accessToken) {
+      startAgent(prisma, logAction, 60000);
+      console.log("[boot] Agent auto-started (Etsy connected)");
+    } else {
+      console.log("[boot] Agent NOT started — connect Etsy first");
+    }
   }
 });
