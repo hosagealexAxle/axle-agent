@@ -23,6 +23,9 @@ export default function App() {
   const [llmInfo, setLlmInfo] = useState("");
   const [agentStatus, setAgentStatus] = useState(null);
   const [agentTasks, setAgentTasks] = useState([]);
+  const [pinterestStatus, setPinterestStatus] = useState(null);
+  const [seoResult, setSeoResult] = useState(null);
+  const [seoBusy, setSeoBusy] = useState(false);
   const chatRef = useRef(null);
 
   async function refreshHealth() {
@@ -141,6 +144,66 @@ export default function App() {
     } catch { /* ignore */ }
   }
 
+  async function loadPinterestStatus() {
+    try {
+      const r = await fetch(`${API_BASE}/api/pinterest/status`);
+      const j = await r.json();
+      if (j.ok) setPinterestStatus(j);
+    } catch { /* ignore */ }
+  }
+
+  async function connectPinterest() {
+    try {
+      const r = await fetch(`${API_BASE}/api/pinterest/authorize`);
+      const j = await r.json();
+      if (j.ok && j.url) window.open(j.url, "_blank", "width=600,height=700");
+    } catch { /* ignore */ }
+  }
+
+  async function disconnectPinterest() {
+    try {
+      await fetch(`${API_BASE}/api/pinterest/disconnect`, { method: "POST" });
+      setPinterestStatus((s) => ({ ...s, connected: false, username: null }));
+    } catch { /* ignore */ }
+  }
+
+  async function runSeoOptimize() {
+    const title = prompt("Listing title to optimize:");
+    if (!title) return;
+    const description = prompt("Description (optional):") || "";
+    const category = prompt("Category (optional):") || "";
+    setSeoBusy(true);
+    setSeoResult(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/seo/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, category }),
+      });
+      const j = await r.json();
+      if (j.ok) setSeoResult(j.result);
+    } catch { /* ignore */ }
+    setSeoBusy(false);
+  }
+
+  async function runKeywordResearch() {
+    const category = prompt("Product category:");
+    if (!category) return;
+    const productType = prompt("Product type:") || category;
+    setSeoBusy(true);
+    setSeoResult(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/seo/keywords`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, productType }),
+      });
+      const j = await r.json();
+      if (j.ok) setSeoResult(j.result);
+    } catch { /* ignore */ }
+    setSeoBusy(false);
+  }
+
   async function loadAgentStatus() {
     try {
       const r = await fetch(`${API_BASE}/api/agent/status`);
@@ -193,7 +256,8 @@ export default function App() {
     loadEtsyStatus();
     loadAgentStatus();
     loadAgentTasks();
-    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); loadEtsyStatus(); loadAgentStatus(); loadAgentTasks(); }, 5000);
+    loadPinterestStatus();
+    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); loadEtsyStatus(); loadAgentStatus(); loadAgentTasks(); loadPinterestStatus(); }, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -479,6 +543,79 @@ export default function App() {
               {etsyStatus?.configured && (
                 <button className="btn primary quickBtn" onClick={connectEtsy}>Connect Etsy</button>
               )}
+            </div>
+          )}
+
+          <div className="sectionTitle">Pinterest</div>
+          {pinterestStatus?.connected ? (
+            <div className="etsyStatus">
+              <div className="etsyConnected">
+                <span className="dot green" />
+                <span>@{pinterestStatus.username || "connected"}</span>
+              </div>
+              <button className="btn quickBtn" onClick={disconnectPinterest}>Disconnect</button>
+            </div>
+          ) : (
+            <div className="etsyStatus">
+              <div className="etsyDisconnected">
+                <span className="dot red" />
+                <span>{pinterestStatus?.configured ? "Not connected" : "App ID pending"}</span>
+              </div>
+              {pinterestStatus?.configured && (
+                <button className="btn primary quickBtn" onClick={connectPinterest}>Connect Pinterest</button>
+              )}
+            </div>
+          )}
+
+          <div className="sectionTitle">SEO Tools</div>
+          <div className="quick">
+            <button className="btn quickBtn" onClick={runSeoOptimize} disabled={seoBusy}>Optimize Listing</button>
+            <button className="btn quickBtn" onClick={runKeywordResearch} disabled={seoBusy}>Keyword Research</button>
+          </div>
+          {seoBusy && <div className="mini thinking">Running SEO analysis...</div>}
+          {seoResult && !seoResult.error && (
+            <div className="seoResult">
+              {seoResult.title && (
+                <div className="seoSection">
+                  <div className="seoLabel">Optimized Title</div>
+                  <div className="seoValue">{seoResult.title}</div>
+                </div>
+              )}
+              {seoResult.tags && (
+                <div className="seoSection">
+                  <div className="seoLabel">Tags ({seoResult.tags.length}/13)</div>
+                  <div className="seoTags">{seoResult.tags.map((t, i) => <span key={i} className="seoTag">{t}</span>)}</div>
+                </div>
+              )}
+              {seoResult.description && (
+                <div className="seoSection">
+                  <div className="seoLabel">Description</div>
+                  <div className="seoValue" style={{fontSize:12}}>{seoResult.description}</div>
+                </div>
+              )}
+              {seoResult.keywords && (
+                <div className="seoSection">
+                  <div className="seoLabel">Keywords</div>
+                  <div className="seoTags">{seoResult.keywords.map((k, i) => <span key={i} className="seoTag">{k}</span>)}</div>
+                </div>
+              )}
+              {seoResult.highVolume && (
+                <div className="seoSection">
+                  <div className="seoLabel">High Volume</div>
+                  <div className="seoTags">{seoResult.highVolume.slice(0, 10).map((k, i) => <span key={i} className="seoTag">{k}</span>)}</div>
+                </div>
+              )}
+              {seoResult.longTail && (
+                <div className="seoSection">
+                  <div className="seoLabel">Long Tail</div>
+                  <div className="seoTags">{seoResult.longTail.slice(0, 8).map((k, i) => <span key={i} className="seoTag">{k}</span>)}</div>
+                </div>
+              )}
+              {seoResult.score && (
+                <div className="kv" style={{marginTop:4}}><span>SEO Score</span><span className={seoResult.score > 70 ? "ok" : "bad"}>{seoResult.score}/100</span></div>
+              )}
+              {seoResult.summary && <div className="mini" style={{marginTop:4}}>{seoResult.summary}</div>}
+              <button className="btn quickBtn" style={{marginTop:6}} onClick={() => setSeoResult(null)}>Clear</button>
             </div>
           )}
 

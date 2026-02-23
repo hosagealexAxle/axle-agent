@@ -6,6 +6,8 @@ import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { buildAuthUrl, exchangeCode, etsyFetch, ETSY_CLIENT_ID } from "./etsy.js";
 import { startAgent, stopAgent, getAgentStatus } from "./agent.js";
+import { optimizeListing, researchKeywords, auditListings } from "./seo.js";
+import { buildPinterestAuthUrl, validateState, exchangePinterestCode, pinterestFetch, getBoards, createBoard, createPinFromListing, PINTEREST_APP_ID } from "./pinterest.js";
 dotenv.config();
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -834,7 +836,192 @@ app.get("/api/roi/summary", async (_req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+// ======= SEO endpoints =======
+app.post("/api/seo/optimize", async (req, res) => {
+  const body = z.object({
+    title: z.string().min(1),
+    description: z.string().optional(),
+    category: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    priceUsd: z.number().optional(),
+  }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const result = await optimizeListing(body.data);
+    await logAction({ type: "seo", label: "listing_optimized", detail: body.data.title.slice(0, 200), amountUsd: 0.003, ok: !result.error });
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error("POST /api/seo/optimize error:", e);
+    await logAction({ type: "seo", label: "optimize_failed", detail: e.message.slice(0, 200), ok: false });
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.post("/api/seo/keywords", async (req, res) => {
+  const body = z.object({
+    category: z.string().min(1),
+    productType: z.string().min(1),
+  }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const result = await researchKeywords(body.data.category, body.data.productType);
+    await logAction({ type: "seo", label: "keyword_research", detail: body.data.productType, amountUsd: 0.003, ok: !result.error });
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error("POST /api/seo/keywords error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.post("/api/seo/audit", async (req, res) => {
+  const body = z.object({
+    listings: z.array(z.object({
+      title: z.string(),
+      tags: z.array(z.string()).optional(),
+      priceUsd: z.number().optional(),
+      visits: z.number().optional(),
+      orders: z.number().optional(),
+    })).min(1),
+  }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const result = await auditListings(body.data.listings);
+    await logAction({ type: "seo", label: "seo_audit", detail: `${body.data.listings.length} listings audited`, amountUsd: 0.003, ok: !result.error });
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error("POST /api/seo/audit error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+// ======= Pinterest OAuth + API =======
+app.get("/api/pinterest/status", async (_req, res) => {
+  try {
+    const token = await prisma.pinterestToken.findUnique({ where: { id: "default" } }).catch(() => null);
+    const connected = !!(token && new Date() < new Date(token.expiresAt));
+    res.json({
+      ok: true,
+      connected,
+      configured: !!PINTEREST_APP_ID,
+      username: token?.username || null,
+    });
+  } catch (e) {
+    console.error("GET /api/pinterest/status error:", e);
+    return safeJson(res, 500, { ok: false, error: "pinterest_status_failed" });
+  }
+});
+
+app.get("/api/pinterest/authorize", (_req, res) => {
+  try {
+    const { url } = buildPinterestAuthUrl();
+    res.json({ ok: true, url });
+  } catch (e) {
+    console.error("GET /api/pinterest/authorize error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.get("/api/pinterest/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    return res.send(`<html><body><h2>Pinterest authorization denied</h2><p>${error}</p><script>setTimeout(()=>window.close(),3000)</script></body></html>`);
+  }
+  if (!code || !state) {
+    return res.send(`<html><body><h2>Missing code or state</h2><script>setTimeout(()=>window.close(),3000)</script></body></html>`);
+  }
+  if (!validateState(String(state))) {
+    return res.send(`<html><body><h2>Invalid state — try again</h2><script>setTimeout(()=>window.close(),3000)</script></body></html>`);
+  }
+  try {
+    const tokens = await exchangePinterestCode(String(code));
+    const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000);
+
+    // Get username
+    let username = null;
+    try {
+      const meRes = await fetch("https://api.pinterest.com/v5/user_account", {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+      if (meRes.ok) {
+        const me = await meRes.json();
+        username = me.username || null;
+      }
+    } catch {}
+
+    await prisma.pinterestToken.upsert({
+      where: { id: "default" },
+      create: { id: "default", accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt, username },
+      update: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt, username },
+    });
+
+    await logAction({ type: "pinterest", label: "oauth_connected", detail: `Pinterest @${username || "unknown"} connected`, ok: true });
+
+    res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px;background:#0a0e13;color:#fff">
+      <h2 style="color:#4ade80">Connected to Pinterest!</h2>
+      <p>You can close this window and return to Axle.</p>
+      <script>setTimeout(()=>window.close(),3000)</script>
+    </body></html>`);
+  } catch (e) {
+    console.error("Pinterest OAuth callback error:", e);
+    await logAction({ type: "pinterest", label: "oauth_failed", detail: e.message, ok: false });
+    res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px;background:#0a0e13;color:#fff">
+      <h2 style="color:#ff6b6b">Connection Failed</h2>
+      <p>${e.message}</p>
+      <script>setTimeout(()=>window.close(),5000)</script>
+    </body></html>`);
+  }
+});
+
+app.post("/api/pinterest/disconnect", async (_req, res) => {
+  try {
+    await prisma.pinterestToken.deleteMany();
+    await logAction({ type: "pinterest", label: "disconnected", detail: "Pinterest disconnected", ok: true });
+    res.json({ ok: true });
+  } catch (e) {
+    return safeJson(res, 500, { ok: false, error: "disconnect_failed" });
+  }
+});
+
+app.get("/api/pinterest/boards", async (_req, res) => {
+  try {
+    const boards = await getBoards(prisma);
+    res.json({ ok: true, boards });
+  } catch (e) {
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.post("/api/pinterest/boards", async (req, res) => {
+  const body = z.object({ name: z.string().min(1), description: z.string().optional() }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const board = await createBoard(prisma, body.data);
+    await logAction({ type: "pinterest", label: "board_created", detail: body.data.name, ok: true });
+    res.json({ ok: true, board });
+  } catch (e) {
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.post("/api/pinterest/pins", async (req, res) => {
+  const body = z.object({
+    boardId: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    link: z.string().url(),
+    imageUrl: z.string().url(),
+  }).safeParse(req.body);
+  if (!body.success) return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  try {
+    const pin = await createPinFromListing(prisma, body.data);
+    await logAction({ type: "pinterest", label: "pin_created", detail: body.data.title, ok: true });
+    res.json({ ok: true, pin });
+  } catch (e) {
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.listen(PORT, async () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
   console.log(`LLM: ${USE_CLAUDE ? `Claude (${ANTHROPIC_MODEL})` : `OpenAI (${OPENAI_MODEL})`}`);
   // Only auto-start agent if Claude + Etsy are both configured

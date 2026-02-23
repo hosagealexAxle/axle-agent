@@ -124,6 +124,15 @@ model AgentTask {
   @@index([status, scheduledFor])
 }
 
+model PinterestToken {
+  id            String   @id @default("default")
+  accessToken   String
+  refreshToken  String
+  expiresAt     DateTime
+  username      String?
+  updatedAt     DateTime @updatedAt
+}
+
 model RoiTracker {
   id              String   @id @default(cuid())
   taskId          String?  // linked AgentTask

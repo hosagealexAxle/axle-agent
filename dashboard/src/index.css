@@ -389,4 +389,43 @@ body {
   white-space: nowrap;
 }
 
+/* ===== SEO Results ===== */
+.seoResult {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.seoSection { display: flex; flex-direction: column; gap: 3px; }
+.seoLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.seoValue {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+.seoTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.seoTag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(90,120,255,0.1);
+  border: 1px solid rgba(90,120,255,0.2);
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .mini { font-size: 12px; color: var(--muted); }
