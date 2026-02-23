@@ -2,6 +2,9 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
 import { buildAuthUrl, exchangeCode, etsyFetch, ETSY_CLIENT_ID } from "./etsy.js";
@@ -12,6 +15,19 @@ dotenv.config();
 const app = express();
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "1mb" }));
+
+// Serve dashboard static files for remote/mobile access
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const dashboardDistDev = path.resolve(__dirname, "..", "..", "dashboard", "dist");
+const dashboardDistPkg = typeof process.resourcesPath === "string"
+  ? path.join(process.resourcesPath, "dashboard", "dist") : "";
+const dashboardDist = (dashboardDistPkg && fs.existsSync(dashboardDistPkg))
+  ? dashboardDistPkg : dashboardDistDev;
+if (fs.existsSync(dashboardDist)) {
+  app.use(express.static(dashboardDist));
+}
+
 const prisma = new PrismaClient();
 const PORT = Number(process.env.PORT || 4000);
 // ======= Config / caps =======
@@ -1020,6 +1036,15 @@ app.post("/api/pinterest/pins", async (req, res) => {
     return safeJson(res, 500, { ok: false, error: e.message });
   }
 });
+
+// SPA fallback — serve dashboard for any non-API route (mobile/Tailscale access)
+const dashIndexPath = path.join(dashboardDist, "index.html");
+if (fs.existsSync(dashIndexPath)) {
+  app.use((_req, res, next) => {
+    if (_req.path.startsWith("/api/")) return next();
+    res.sendFile(dashIndexPath);
+  });
+}
 
 app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
