@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Axle by MrsMillennial Designs</title>
+  <style>
+    :root { --bg: #0a0e13; --panel: #0f1621; --text: #ffffffeb; --muted: #ffffff80; --accent: #5a78ff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, sans-serif; line-height: 1.7; }
+    .container { max-width: 760px; margin: 0 auto; padding: 60px 24px; }
+    h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+    .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    h2 { font-size: 20px; font-weight: 700; margin: 32px 0 12px; }
+    p, li { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+    ul { padding-left: 20px; margin-bottom: 16px; }
+    li { margin-bottom: 6px; }
+    strong { color: var(--text); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); text-align: center; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <h1>Privacy Policy</h1>
+    <div class="subtitle">Axle by MrsMillennial Designs &mdash; Last updated: February 23, 2026</div>
+
+    <h2>Overview</h2>
+    <p>Axle is a <strong>personal-use desktop application</strong> built to manage a single Etsy shop (MrsMillennialDesigns). It is not a commercial product and is not offered to third parties. This privacy policy describes how the application handles data from the Etsy and Pinterest APIs.</p>
+
+    <h2>Data We Collect</h2>
+    <p>When you authenticate Axle with your Etsy or Pinterest account, the app accesses:</p>
+    <ul>
+      <li><strong>Etsy:</strong> Shop profile, listings, listing statistics, orders, and revenue data for the connected shop.</li>
+      <li><strong>Pinterest:</strong> User profile, boards, and pins for the connected account.</li>
+    </ul>
+    <p>No data is collected from any user other than the shop owner who authenticates the app.</p>
+
+    <h2>How Data Is Stored</h2>
+    <ul>
+      <li>All data is stored <strong>locally on the shop owner's computer</strong> in a SQLite database.</li>
+      <li>There are <strong>no cloud servers, no external databases, and no third-party analytics</strong>.</li>
+      <li>OAuth tokens are stored locally and are never transmitted to any server other than the official Etsy and Pinterest API endpoints.</li>
+    </ul>
+
+    <h2>How Data Is Used</h2>
+    <p>Data retrieved from Etsy and Pinterest is used exclusively to:</p>
+    <ul>
+      <li>Display shop analytics and listing performance in the local dashboard.</li>
+      <li>Help the shop owner plan SEO improvements and manage listings.</li>
+      <li>Create and manage Pinterest pins to promote shop listings.</li>
+      <li>Track budgets and spending across shop operations.</li>
+    </ul>
+    <p>Data is <strong>never sold, shared, or disclosed</strong> to any third party.</p>
+
+    <h2>Third-Party Services</h2>
+    <p>Axle connects to the following APIs solely for shop management:</p>
+    <ul>
+      <li><strong>Etsy Open API v3</strong> — to read and manage shop data.</li>
+      <li><strong>Pinterest API v5</strong> — to create pins and manage boards.</li>
+      <li><strong>Anthropic (Claude) API</strong> — to power the AI chat assistant. Chat messages are sent to Anthropic's API for processing. Anthropic's <a href="https://www.anthropic.com/privacy">privacy policy</a> applies to that data.</li>
+      <li><strong>OpenAI API</strong> — used as a fallback AI provider. OpenAI's <a href="https://openai.com/privacy">privacy policy</a> applies to that data.</li>
+    </ul>
+
+    <h2>Data Retention</h2>
+    <p>Data persists in the local database as long as the application is installed. Uninstalling the app and deleting its data folder removes all stored data. There is no remote backup or cloud sync.</p>
+
+    <h2>Data Sharing</h2>
+    <p>Axle does <strong>not</strong>:</p>
+    <ul>
+      <li>Share data with advertisers or data brokers.</li>
+      <li>Collect data from users other than the authenticated shop owner.</li>
+      <li>Use tracking pixels, cookies, or analytics services.</li>
+      <li>Transmit data to any server other than the official API endpoints listed above.</li>
+    </ul>
+
+    <h2>Security</h2>
+    <ul>
+      <li>OAuth 2.0 with PKCE is used for Etsy authentication.</li>
+      <li>OAuth 2.0 is used for Pinterest authentication.</li>
+      <li>All API communication uses HTTPS/TLS encryption.</li>
+      <li>Remote access (iPhone) is secured via Tailscale's encrypted WireGuard mesh network.</li>
+    </ul>
+
+    <h2>Children's Privacy</h2>
+    <p>This application is not designed for or directed at children under 13. No data is knowingly collected from children.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>This policy may be updated as the application evolves. The "Last updated" date at the top reflects the most recent revision.</p>
+
+    <h2>Contact</h2>
+    <p>For questions about this privacy policy, contact the shop owner via the Etsy shop: <a href="https://mrsmillennial.etsy.com">MrsMillennialDesigns on Etsy</a>.</p>
+
+    <div class="footer">
+      <p><a href="/">&larr; Back to Axle</a></p>
+      <p style="margin-top: 8px;">&copy; 2026 MrsMillennial Designs</p>
+    </div>
+
+  </div>
+</body>
+</html>
