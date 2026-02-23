@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
 
 // Auto-detect API base: use current hostname for Tailscale/remote access
-const API_BASE = typeof window !== "undefined" && window.location.hostname !== "localhost" && !window.location.hostname.startsWith("127.")
-  ? `http://${window.location.hostname}:4000`
+// In Electron (file://), hostname is empty — fall back to localhost
+const _host = typeof window !== "undefined" ? window.location.hostname : "";
+const API_BASE = _host && _host !== "localhost" && !_host.startsWith("127.")
+  ? `http://${_host}:4000`
   : "http://localhost:4000";
 
 function nowTs() { return Date.now(); }
