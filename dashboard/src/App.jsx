@@ -19,6 +19,7 @@ export default function App() {
   const [shopStats, setShopStats] = useState(null);
   const [editingThreadId, setEditingThreadId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
+  const [etsyStatus, setEtsyStatus] = useState(null);
   const chatRef = useRef(null);
 
   async function refreshHealth() {
@@ -113,6 +114,29 @@ export default function App() {
     } catch { /* ignore */ }
   }
 
+  async function loadEtsyStatus() {
+    try {
+      const r = await fetch(`${API_BASE}/api/etsy/status`);
+      const j = await r.json();
+      if (j.ok) setEtsyStatus(j);
+    } catch { /* ignore */ }
+  }
+
+  async function connectEtsy() {
+    try {
+      const r = await fetch(`${API_BASE}/api/oauth/authorize`);
+      const j = await r.json();
+      if (j.ok && j.url) window.open(j.url, "_blank", "width=600,height=700");
+    } catch { /* ignore */ }
+  }
+
+  async function disconnectEtsy() {
+    try {
+      await fetch(`${API_BASE}/api/oauth/disconnect`, { method: "POST" });
+      setEtsyStatus((s) => ({ ...s, connected: false, shopId: null }));
+    } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     refreshHealth();
     loadThreads();
@@ -120,7 +144,8 @@ export default function App() {
     loadBudget();
     loadShopStats();
     loadActions();
-    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); }, 5000);
+    loadEtsyStatus();
+    const t = setInterval(() => { refreshHealth(); loadBudget(); loadActions(); loadEtsyStatus(); }, 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -336,6 +361,27 @@ export default function App() {
             </div>
           ) : (
             <div className="mini">No recent activity</div>
+          )}
+
+          <div className="sectionTitle">Etsy Connection</div>
+          {etsyStatus?.connected ? (
+            <div className="etsyStatus">
+              <div className="etsyConnected">
+                <span className="dot green" />
+                <span>Connected{etsyStatus.shopId ? ` (Shop ${etsyStatus.shopId})` : ""}</span>
+              </div>
+              <button className="btn quickBtn" onClick={disconnectEtsy}>Disconnect</button>
+            </div>
+          ) : (
+            <div className="etsyStatus">
+              <div className="etsyDisconnected">
+                <span className="dot red" />
+                <span>{etsyStatus?.configured ? "Not connected" : "API key pending"}</span>
+              </div>
+              {etsyStatus?.configured && (
+                <button className="btn primary quickBtn" onClick={connectEtsy}>Connect Etsy</button>
+              )}
+            </div>
           )}
 
           <div className="sectionTitle">Quick Commands</div>

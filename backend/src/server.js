@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { z } from "zod";
 import { PrismaClient } from "@prisma/client";
+import { buildAuthUrl, exchangeCode, etsyFetch, ETSY_CLIENT_ID } from "./etsy.js";
 dotenv.config();
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -503,6 +504,161 @@ app.post("/api/chat", async (req, res) => {
   } catch (e) {
     console.error("/api/chat error:", e);
     return safeJson(res, 400, { ok: false, error: "invalid_request" });
+  }
+});
+
+// ======= Etsy OAuth 2.0 + PKCE =======
+app.get("/api/etsy/status", async (_req, res) => {
+  try {
+    const token = await prisma.etsyToken.findUnique({ where: { id: "default" } });
+    const connected = !!(token && new Date() < new Date(token.expiresAt.getTime() + 90 * 24 * 3600 * 1000)); // refresh tokens last 90 days
+    res.json({
+      ok: true,
+      connected,
+      configured: !!ETSY_CLIENT_ID,
+      shopId: token?.shopId || null,
+      etsyUserId: token?.etsyUserId || null,
+    });
+  } catch (e) {
+    console.error("GET /api/etsy/status error:", e);
+    return safeJson(res, 500, { ok: false, error: "etsy_status_failed" });
+  }
+});
+
+app.get("/api/oauth/authorize", (_req, res) => {
+  try {
+    const { url } = buildAuthUrl();
+    res.json({ ok: true, url });
+  } catch (e) {
+    console.error("GET /api/oauth/authorize error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.get("/api/oauth/callback", async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    return res.send(`<html><body><h2>Authorization denied</h2><p>${error}</p><script>setTimeout(()=>window.close(),3000)</script></body></html>`);
+  }
+  if (!code || !state) {
+    return res.send(`<html><body><h2>Missing code or state</h2><script>setTimeout(()=>window.close(),3000)</script></body></html>`);
+  }
+  try {
+    const tokens = await exchangeCode(String(code), String(state));
+    const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000);
+
+    // Get the user's shop ID
+    let etsyUserId = null;
+    let shopId = null;
+    try {
+      // Temporarily save token so etsyFetch works
+      await prisma.etsyToken.upsert({
+        where: { id: "default" },
+        create: { id: "default", accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt },
+        update: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt },
+      });
+
+      // Fetch user info
+      const meRes = await fetch("https://openapi.etsy.com/v3/application/users/me", {
+        headers: {
+          "x-api-key": ETSY_CLIENT_ID,
+          Authorization: `Bearer ${tokens.accessToken}`,
+        },
+      });
+      if (meRes.ok) {
+        const me = await meRes.json();
+        etsyUserId = String(me.user_id || "");
+        // Fetch shop
+        if (etsyUserId) {
+          const shopRes = await fetch(`https://openapi.etsy.com/v3/application/users/${etsyUserId}/shops`, {
+            headers: {
+              "x-api-key": ETSY_CLIENT_ID,
+              Authorization: `Bearer ${tokens.accessToken}`,
+            },
+          });
+          if (shopRes.ok) {
+            const shopData = await shopRes.json();
+            shopId = String(shopData.shop_id || "");
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch Etsy user/shop info:", err.message);
+    }
+
+    // Save tokens
+    await prisma.etsyToken.upsert({
+      where: { id: "default" },
+      create: { id: "default", accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt, etsyUserId, shopId },
+      update: { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt, etsyUserId, shopId },
+    });
+
+    await logAction({ type: "etsy", label: "oauth_connected", detail: `Shop ${shopId || "unknown"} connected`, ok: true });
+
+    res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px;background:#0a0e13;color:#fff">
+      <h2 style="color:#4ade80">Connected to Etsy!</h2>
+      <p>You can close this window and return to Axle.</p>
+      <script>setTimeout(()=>window.close(),3000)</script>
+    </body></html>`);
+  } catch (e) {
+    console.error("OAuth callback error:", e);
+    await logAction({ type: "etsy", label: "oauth_failed", detail: e.message, ok: false });
+    res.send(`<html><body style="font-family:system-ui;text-align:center;padding:60px;background:#0a0e13;color:#fff">
+      <h2 style="color:#ff6b6b">Connection Failed</h2>
+      <p>${e.message}</p>
+      <script>setTimeout(()=>window.close(),5000)</script>
+    </body></html>`);
+  }
+});
+
+app.post("/api/oauth/disconnect", async (_req, res) => {
+  try {
+    await prisma.etsyToken.deleteMany();
+    await logAction({ type: "etsy", label: "disconnected", detail: "Etsy account disconnected", ok: true });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /api/oauth/disconnect error:", e);
+    return safeJson(res, 500, { ok: false, error: "disconnect_failed" });
+  }
+});
+
+// ======= Etsy API proxy endpoints =======
+app.get("/api/etsy/shop", async (_req, res) => {
+  try {
+    const token = await prisma.etsyToken.findUnique({ where: { id: "default" } });
+    if (!token?.shopId) return safeJson(res, 400, { ok: false, error: "no_shop_connected" });
+    const shop = await etsyFetch(prisma, `/application/shops/${token.shopId}`);
+    res.json({ ok: true, shop });
+  } catch (e) {
+    console.error("GET /api/etsy/shop error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.get("/api/etsy/listings", async (req, res) => {
+  try {
+    const token = await prisma.etsyToken.findUnique({ where: { id: "default" } });
+    if (!token?.shopId) return safeJson(res, 400, { ok: false, error: "no_shop_connected" });
+    const limit = Math.min(Number(req.query.limit || 25), 100);
+    const offset = Number(req.query.offset || 0);
+    const listings = await etsyFetch(prisma, `/application/shops/${token.shopId}/listings?limit=${limit}&offset=${offset}`);
+    res.json({ ok: true, ...listings });
+  } catch (e) {
+    console.error("GET /api/etsy/listings error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
+  }
+});
+
+app.get("/api/etsy/receipts", async (req, res) => {
+  try {
+    const token = await prisma.etsyToken.findUnique({ where: { id: "default" } });
+    if (!token?.shopId) return safeJson(res, 400, { ok: false, error: "no_shop_connected" });
+    const limit = Math.min(Number(req.query.limit || 25), 100);
+    const receipts = await etsyFetch(prisma, `/application/shops/${token.shopId}/receipts?limit=${limit}`);
+    res.json({ ok: true, ...receipts });
+  } catch (e) {
+    console.error("GET /api/etsy/receipts error:", e);
+    return safeJson(res, 500, { ok: false, error: e.message });
   }
 });
 

@@ -91,3 +91,13 @@ model KeyFact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model EtsyToken {
+  id            String   @id @default("default")
+  accessToken   String
+  refreshToken  String
+  expiresAt     DateTime
+  etsyUserId    String?
+  shopId        String?
+  updatedAt     DateTime @updatedAt
+}

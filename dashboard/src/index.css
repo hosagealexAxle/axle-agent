@@ -304,4 +304,8 @@ body {
 .quick { display: flex; flex-wrap: wrap; gap: 4px; }
 .quickBtn { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
 
+/* Etsy status */
+.etsyStatus { display: flex; flex-direction: column; gap: 6px; }
+.etsyConnected, .etsyDisconnected { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+
 .mini { font-size: 12px; color: var(--muted); }
