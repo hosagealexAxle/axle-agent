@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
 
-const API_BASE = "http://localhost:4000";
+// Auto-detect API base: use current hostname for Tailscale/remote access
+const API_BASE = typeof window !== "undefined" && window.location.hostname !== "localhost" && !window.location.hostname.startsWith("127.")
+  ? `http://${window.location.hostname}:4000`
+  : "http://localhost:4000";
 
 function nowTs() { return Date.now(); }
 function fmtTime(ts) { try { return new Date(ts).toLocaleString(); } catch { return ""; } }
@@ -26,6 +29,7 @@ export default function App() {
   const [pinterestStatus, setPinterestStatus] = useState(null);
   const [seoResult, setSeoResult] = useState(null);
   const [seoBusy, setSeoBusy] = useState(false);
+  const [mobileView, setMobileView] = useState("chat"); // "chat" | "threads" | "panel"
   const chatRef = useRef(null);
 
   async function refreshHealth() {
@@ -323,7 +327,7 @@ export default function App() {
   return (
     <div className="app">
       {/* Sidebar */}
-      <div className="sidebar">
+      <div className={"sidebar" + (mobileView === "threads" ? " mobileShow" : "")}>
         <div className="brand">
           <div className="brandName">Axle</div>
           <div className="brandSub">Etsy operator console</div>
@@ -334,7 +338,7 @@ export default function App() {
             <div
               key={t.id}
               className={"threadItem " + (t.id === activeThreadId ? "active" : "")}
-              onClick={() => { setActiveThreadId(t.id); setEditingThreadId(null); }}
+              onClick={() => { setActiveThreadId(t.id); setEditingThreadId(null); setMobileView("chat"); }}
             >
               {editingThreadId === t.id ? (
                 <input
@@ -381,7 +385,7 @@ export default function App() {
       </div>
 
       {/* Main Chat */}
-      <div className="main">
+      <div className={"main" + (mobileView !== "chat" ? " mobileHide" : "")}>
         <div className="topbar">
           <div className="title">{activeThreadTitle}</div>
           <div className="topbarRight">
@@ -422,7 +426,7 @@ export default function App() {
       </div>
 
       {/* Right Panel */}
-      <div className="right">
+      <div className={"right" + (mobileView === "panel" ? " mobileShow" : "")}>
         <div className="panel">
           <div className="panelTitle">Overview</div>
 
@@ -626,6 +630,24 @@ export default function App() {
             <button className="btn quickBtn" onClick={() => { setInput("Kill switch on"); }}>Kill Switch</button>
             <button className="btn quickBtn" onClick={() => { setInput("Plan my SEO today"); }}>Plan SEO</button>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Bottom Nav */}
+      <div className="mobileNav">
+        <div className="mobileNavInner">
+          <button className={"mobileNavBtn" + (mobileView === "threads" ? " active" : "")} onClick={() => setMobileView("threads")}>
+            <span className="mobileNavIcon">💬</span>
+            <span>Threads</span>
+          </button>
+          <button className={"mobileNavBtn" + (mobileView === "chat" ? " active" : "")} onClick={() => setMobileView("chat")}>
+            <span className="mobileNavIcon">⚡</span>
+            <span>Chat</span>
+          </button>
+          <button className={"mobileNavBtn" + (mobileView === "panel" ? " active" : "")} onClick={() => setMobileView("panel")}>
+            <span className="mobileNavIcon">📊</span>
+            <span>Dashboard</span>
+          </button>
         </div>
       </div>
     </div>

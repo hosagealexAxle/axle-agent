@@ -1021,7 +1021,7 @@ app.post("/api/pinterest/pins", async (req, res) => {
   }
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`Axle backend running: http://localhost:${PORT}`);
   console.log(`LLM: ${USE_CLAUDE ? `Claude (${ANTHROPIC_MODEL})` : `OpenAI (${OPENAI_MODEL})`}`);
   // Only auto-start agent if Claude + Etsy are both configured
