@@ -128,6 +128,26 @@ Output a JSON array of recommendations: [{"action": "...", "type": "seo_optimize
         break;
       }
 
+      case "pinterest_pin": {
+        // Generate Pinterest pin content from a listing
+        const response = await agentThink(
+          "You are a Pinterest marketing expert. Create an engaging pin for this Etsy listing. Output as JSON: {pinTitle, pinDescription, boardSuggestion, hashtags: [], bestTimeToPost}",
+          `Create a Pinterest pin for this Etsy listing:\nTitle: ${task.title}\nDetails: ${task.description}\nTarget ID: ${task.targetId || "unknown"}`
+        );
+        result = { pinPlan: response };
+        break;
+      }
+
+      case "pinterest_strategy": {
+        // Plan Pinterest marketing strategy
+        const response = await agentThink(
+          "You are a Pinterest marketing strategist for Etsy sellers. Create a pinning strategy. Output as JSON: {boards: [{name, description, pinFrequency}], contentCalendar: [{day, pinType, topic}], tips: []}",
+          `Create a Pinterest strategy for this shop:\nShop focus: ${task.title}\nDetails: ${task.description}`
+        );
+        result = { strategy: response };
+        break;
+      }
+
       default: {
         const response = await agentThink(
           "You are Axle, an autonomous Etsy shop operator. Complete this task and report results.",
@@ -157,7 +177,7 @@ Output a JSON array of recommendations: [{"action": "...", "type": "seo_optimize
     });
 
     // Create ROI tracker entry if applicable
-    if (["seo_optimize", "listing_refresh", "ad_launch"].includes(task.type)) {
+    if (["seo_optimize", "listing_refresh", "ad_launch", "pinterest_pin", "pinterest_strategy"].includes(task.type)) {
       await prisma.roiTracker.create({
         data: {
           taskId: task.id,

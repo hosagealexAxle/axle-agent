@@ -753,7 +753,7 @@ app.get("/api/agent/tasks", async (req, res) => {
 
 app.post("/api/agent/tasks", async (req, res) => {
   const body = z.object({
-    type: z.enum(["seo_optimize", "listing_refresh", "ad_launch", "analysis", "custom"]),
+    type: z.enum(["seo_optimize", "listing_refresh", "ad_launch", "analysis", "pinterest_pin", "pinterest_strategy", "custom"]),
     title: z.string().min(1),
     description: z.string().optional(),
     priority: z.number().min(1).max(10).optional(),
